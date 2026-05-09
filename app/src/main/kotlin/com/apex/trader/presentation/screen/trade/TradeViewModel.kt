@@ -70,7 +70,7 @@ class TradeViewModel @Inject constructor(
 
     private fun load() {
         viewModelScope.launch {
-            val r = runCatching {
+            try {
                 val settings = settingsRepository.settings.first()
                 val rules = tradingRepository.getSymbolRules(symbolArg)
                 val account = tradingRepository.getAccount()
@@ -82,24 +82,25 @@ class TradeViewModel @Inject constructor(
                 val priceFromTicker = marketRepository.get24hTickers()
                     .firstOrNull { it.symbol == symbolArg }
                     ?.lastPrice?.toDoubleOrNull() ?: signal?.price ?: 0.0
-                LoadResult(rules, available, signal, priceFromTicker, settings.defaultLeverage, settings.isolatedMargin, settings.autoAttachSlTp)
-            }
-            _ui.update {
-                if (r.isSuccess) {
-                    val res = r.getOrThrow()
+                _ui.update {
                     it.copy(
                         loading = false,
-                        rules = res.rules,
-                        availableUsdt = res.availableUsdt,
-                        signal = res.signal,
-                        side = res.signal?.side ?: SignalSide.LONG,
-                        entryPrice = res.signal?.plan?.entry ?: res.lastPrice,
-                        marginUsdt = (res.availableUsdt * 0.05).coerceAtLeast(0.0), // default 5% of free balance
-                        leverage = res.defaultLeverage,
-                        isolated = res.defaultIsolated,
-                        autoAttachSlTp = res.autoAttachSlTp
+                        rules = rules,
+                        availableUsdt = available,
+                        signal = signal,
+                        side = signal?.side ?: SignalSide.LONG,
+                        entryPrice = signal?.plan?.entry ?: priceFromTicker,
+                        marginUsdt = (available * 0.05).coerceAtLeast(0.0),
+                        leverage = settings.defaultLeverage,
+                        isolated = settings.isolatedMargin,
+                        autoAttachSlTp = settings.autoAttachSlTp
                     )
-                } else it.copy(loading = false, error = r.exceptionOrNull()?.message)
+                }
+            } catch (ce: kotlinx.coroutines.CancellationException) {
+                throw ce
+            } catch (t: Throwable) {
+                timber.log.Timber.e(t, "trade screen load failed for $symbolArg")
+                _ui.update { it.copy(loading = false, error = t.message ?: t.javaClass.simpleName) }
             }
         }
     }
@@ -140,7 +141,7 @@ class TradeViewModel @Inject constructor(
         _ui.update { it.copy(placing = true, error = null, resultMessage = null, warnings = emptyList()) }
 
         viewModelScope.launch {
-            val r = runCatching {
+            try {
                 tradingRepository.setMarginType(s.symbol, s.isolated)
                 tradingRepository.setLeverage(s.symbol, s.leverage)
                 val warnings = mutableListOf<String>()
@@ -152,7 +153,7 @@ class TradeViewModel @Inject constructor(
                     )
                 } else emptyList()
                 val sl = if (s.autoAttachSlTp) s.effectiveSl else null
-                tradingRepository.openMarketWithBrackets(
+                val response = tradingRepository.openMarketWithBrackets(
                     symbol = s.symbol,
                     side = s.side,
                     quantity = s.quantity,
@@ -160,19 +161,21 @@ class TradeViewModel @Inject constructor(
                     takeProfits = tps,
                     rules = rules,
                     onBracketError = { warnings += it }
-                ) to warnings
-            }
-            _ui.update {
-                if (r.isSuccess) {
-                    val (response, warnings) = r.getOrThrow()
+                )
+                _ui.update {
                     it.copy(
                         placing = false,
                         resultMessage = "Filled ${response.executedQty} @ ${response.avgPrice ?: response.price}",
                         warnings = warnings
                     )
-                } else it.copy(placing = false, error = r.exceptionOrNull()?.message)
+                }
+                onSuccess()
+            } catch (ce: kotlinx.coroutines.CancellationException) {
+                throw ce
+            } catch (t: Throwable) {
+                timber.log.Timber.e(t, "place order failed")
+                _ui.update { it.copy(placing = false, error = t.message ?: t.javaClass.simpleName) }
             }
-            if (r.isSuccess) onSuccess()
         }
     }
 }

@@ -10,11 +10,13 @@ import com.apex.trader.data.repository.SettingsRepository
 import com.apex.trader.domain.scanner.MarketScanner
 import com.apex.trader.domain.strategy.Signal
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import timber.log.Timber
 import javax.inject.Inject
 
 data class SignalDetailUiState(
@@ -43,20 +45,19 @@ class SignalDetailViewModel @Inject constructor(
     fun refresh() {
         _ui.update { it.copy(loading = true, error = null) }
         viewModelScope.launch {
-            val r = runCatching {
+            try {
                 val settings = settingsRepository.settings.first()
                 val htf = Timeframe.fromCode(settings.htfTimeframe)
                 val mtf = Timeframe.fromCode(settings.mtfTimeframe)
                 val ltf = Timeframe.fromCode(settings.ltfTimeframe)
                 val ltfCandles = marketRepository.getCandles(symbolArg, ltf, 200)
                 val signal = scanner.evaluateOne(symbolArg, htf, mtf, ltf)
-                ltfCandles to signal
-            }
-            _ui.update {
-                if (r.isSuccess) {
-                    val (candles, sig) = r.getOrThrow()
-                    it.copy(loading = false, candles = candles, signal = sig)
-                } else it.copy(loading = false, error = r.exceptionOrNull()?.message)
+                _ui.update { it.copy(loading = false, candles = ltfCandles, signal = signal) }
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (t: Throwable) {
+                Timber.e(t, "signal detail refresh failed for $symbolArg")
+                _ui.update { it.copy(loading = false, error = t.message ?: t.javaClass.simpleName) }
             }
         }
     }

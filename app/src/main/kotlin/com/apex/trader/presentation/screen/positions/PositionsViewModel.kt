@@ -7,10 +7,12 @@ import com.apex.trader.data.api.dto.PositionDto
 import com.apex.trader.data.repository.TradingRepository
 import com.apex.trader.domain.strategy.SignalSide
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import timber.log.Timber
 import kotlin.math.abs
 import javax.inject.Inject
 
@@ -35,16 +37,15 @@ class PositionsViewModel @Inject constructor(
     fun refresh() {
         _ui.update { it.copy(loading = true, error = null) }
         viewModelScope.launch {
-            val r = runCatching {
+            try {
                 val account = tradingRepository.getAccount()
                 val positions = tradingRepository.getOpenPositions()
-                account to positions
-            }
-            _ui.update {
-                if (r.isSuccess) {
-                    val (acc, pos) = r.getOrThrow()
-                    it.copy(loading = false, account = acc, positions = pos)
-                } else it.copy(loading = false, error = r.exceptionOrNull()?.message)
+                _ui.update { it.copy(loading = false, account = account, positions = positions) }
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (t: Throwable) {
+                Timber.e(t, "positions refresh failed")
+                _ui.update { it.copy(loading = false, error = t.message ?: t.javaClass.simpleName) }
             }
         }
     }
@@ -52,20 +53,21 @@ class PositionsViewModel @Inject constructor(
     fun closePosition(symbol: String, amt: Double) {
         _ui.update { it.copy(workingSymbol = symbol) }
         viewModelScope.launch {
-            val r = runCatching {
+            try {
                 val rules = tradingRepository.getSymbolRules(symbol)
                     ?: error("Missing exchange rules for $symbol")
                 val side = if (amt > 0) SignalSide.LONG else SignalSide.SHORT
                 tradingRepository.cancelAll(symbol)
                 tradingRepository.closePosition(symbol, side, abs(amt), rules)
+                _ui.update { it.copy(workingSymbol = null) }
+                refresh()
+            } catch (ce: CancellationException) {
+                _ui.update { it.copy(workingSymbol = null) }
+                throw ce
+            } catch (t: Throwable) {
+                Timber.e(t, "close position failed for $symbol")
+                _ui.update { it.copy(workingSymbol = null, error = t.message ?: t.javaClass.simpleName) }
             }
-            _ui.update {
-                it.copy(
-                    workingSymbol = null,
-                    error = r.exceptionOrNull()?.message
-                )
-            }
-            if (r.isSuccess) refresh()
         }
     }
 }

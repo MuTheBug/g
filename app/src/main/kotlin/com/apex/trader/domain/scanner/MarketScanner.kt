@@ -8,6 +8,7 @@ import com.apex.trader.domain.strategy.ApexConfluenceStrategy
 import com.apex.trader.domain.strategy.Signal
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -17,6 +18,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -37,20 +39,37 @@ class MarketScanner @Inject constructor(
 ) {
 
     /**
-     * Scans up to [SettingsRepository.AppSettings.scanLimit] of the highest-volume USDT
-     * perp symbols and returns the high-confidence signals sorted by confidence desc.
+     * Scans the configured number of symbols (default 30, top USDT-M perps by volume
+     * plus the user watchlist) and returns high-confidence signals sorted by
+     * confidence descending.
      *
-     * Runs evaluation with bounded parallelism (default 6) to avoid hammering the
-     * Binance REST endpoints — `/fapi/v1/klines` is weight 5 and we issue 3 per symbol.
+     * Reliability features:
+     * - Bounded parallelism (default 3) to keep request load low and avoid
+     *   tripping Binance rate limits or saturating the device's TCP pool.
+     * - Per-symbol [withTimeout] of 20s so a single stuck request can never
+     *   stall the entire scan.
+     * - Re-throws [CancellationException] so screen exit cleanly tears the
+     *   scan down (previously runCatching swallowed cancellation).
+     * - Progress callback invoked OUTSIDE the lock; a slow / faulty subscriber
+     *   can't block other scanning coroutines.
      */
     suspend fun scan(
         progress: (ScanProgress) -> Unit = {},
-        parallelism: Int = 6
+        parallelism: Int = 3,
+        perSymbolTimeoutMs: Long = 20_000L
     ): List<Signal> = coroutineScope {
         val settings = settingsRepository.settings.first()
-        val tickers = marketRepository.get24hTickers()
-            .filter { it.symbol.endsWith("USDT") }
-            .filter { it.symbol !in settings.excludedSymbols }
+        val tickers = try {
+            marketRepository.get24hTickers()
+                .filter { it.symbol.endsWith("USDT") }
+                .filter { it.symbol !in settings.excludedSymbols }
+        } catch (ce: CancellationException) {
+            throw ce
+        } catch (t: Throwable) {
+            Timber.e(t, "ticker fetch failed; aborting scan")
+            return@coroutineScope emptyList()
+        }
+        if (tickers.isEmpty()) return@coroutineScope emptyList()
 
         val symbols = pickSymbols(tickers, settings.scanLimit, settings.watchlist)
         val htf = Timeframe.fromCode(settings.htfTimeframe)
@@ -67,10 +86,15 @@ class MarketScanner @Inject constructor(
             async(Dispatchers.IO) {
                 sem.withPermit {
                     val signal = try {
-                        evaluateOne(symbol, htf, mtf, ltf)
+                        withTimeout(perSymbolTimeoutMs) {
+                            evaluateOne(symbol, htf, mtf, ltf)
+                        }
+                    } catch (timeout: TimeoutCancellationException) {
+                        Timber.w("scan timed out for $symbol after ${perSymbolTimeoutMs}ms")
+                        null
                     } catch (ce: CancellationException) {
-                        // Critical: do NOT swallow cancellation — let structured
-                        // concurrency unwind cleanly when the parent scope dies.
+                        // Outer scope cancellation — propagate so structured concurrency
+                        // unwinds cleanly. (TimeoutCancellationException is handled above.)
                         throw ce
                     } catch (t: Throwable) {
                         Timber.w(t, "scan failed for $symbol")
@@ -88,8 +112,6 @@ class MarketScanner @Inject constructor(
                             errors = errors
                         )
                     }
-                    // Emit progress OUTSIDE the lock so a slow / faulty subscriber
-                    // can't block other scanning coroutines.
                     runCatching { progress(snapshot) }
                         .onFailure { Timber.w(it, "progress callback threw") }
                     signal
@@ -111,7 +133,6 @@ class MarketScanner @Inject constructor(
         val htfCandles = marketRepository.getCandles(symbol, htf, 250)
         val mtfCandles = marketRepository.getCandles(symbol, mtf, 250)
         val ltfCandles = marketRepository.getCandles(symbol, ltf, 200)
-        // Drop the (still-forming) latest candle so the strategy sees only closed bars.
         val htfClosed = htfCandles.dropLast(1)
         val mtfClosed = mtfCandles.dropLast(1)
         val ltfClosed = ltfCandles.dropLast(1)
@@ -123,7 +144,6 @@ class MarketScanner @Inject constructor(
         limit: Int,
         watchlist: Set<String>
     ): List<String> {
-        // Always include watchlist; fill the rest with top quote-volume symbols.
         val byVolumeDesc = tickers.sortedByDescending { it.quoteVolume.toDoubleOrNull() ?: 0.0 }
         val watch = watchlist.filter { wl -> tickers.any { it.symbol == wl } }
         val rest = byVolumeDesc.map { it.symbol }.filter { it !in watch }

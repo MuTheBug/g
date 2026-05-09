@@ -16,7 +16,7 @@ import javax.inject.Singleton
 private val Context.dataStore by preferencesDataStore(name = "apex_settings")
 
 data class AppSettings(
-    val scanLimit: Int = 50,
+    val scanLimit: Int = 30,
     val minConfidence: Int = 70,
     val defaultLeverage: Int = 5,
     val isolatedMargin: Boolean = true,
