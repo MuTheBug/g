@@ -116,7 +116,7 @@ fun PositionsScreen(
 @Composable
 private fun PositionCard(pos: PositionDto, working: Boolean, onClose: () -> Unit) {
     val amt = pos.positionAmt.toDoubleOrNull() ?: 0.0
-    val pnl = pos.unRealizedProfit.toDoubleOrNull() ?: 0.0
+    val pnl = pos.pnl.toDoubleOrNull() ?: 0.0
     ApexCard {
         Column {
             Row(verticalAlignment = Alignment.CenterVertically) {

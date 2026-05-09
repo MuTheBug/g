@@ -43,13 +43,13 @@ data class SymbolFilterDto(
 @Serializable
 data class TickerDto(
     val symbol: String,
-    val lastPrice: String,
-    val priceChangePercent: String,
-    val volume: String,
-    val quoteVolume: String,
-    val highPrice: String,
-    val lowPrice: String,
-    val openPrice: String
+    val lastPrice: String = "0",
+    val priceChangePercent: String = "0",
+    val volume: String = "0",
+    val quoteVolume: String = "0",
+    val highPrice: String = "0",
+    val lowPrice: String = "0",
+    val openPrice: String = "0"
 )
 
 @Serializable
