@@ -1,0 +1,45 @@
+# Gradle
+.gradle/
+build/
+out/
+captures/
+.cxx/
+local.properties
+
+# Android
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+release/
+debug/
+proguard/
+
+# IDE
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+.fleet/
+.kotlin/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs / Coverage
+*.log
+hs_err_pid*
+*.hprof
+coverage/
+jacoco/
+
+# Keys / secrets — never commit these
+keystore.properties
+*.jks
+*.keystore
+google-services.json
+api-keys.txt
+.env

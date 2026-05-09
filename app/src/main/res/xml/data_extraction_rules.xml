@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="apex_credentials.enc.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="apex_credentials.enc.xml" />
+    </device-transfer>
+</data-extraction-rules>
