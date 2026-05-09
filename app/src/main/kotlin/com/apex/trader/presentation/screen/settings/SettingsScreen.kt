@@ -68,9 +68,15 @@ fun SettingsScreen(
     val notificationPermLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
-        // Persist the toggle whether the user grants or denies — the worker handles
-        // missing notifications gracefully (no crash), it just won't notify.
-        vm.update { it.copy(backgroundScanEnabled = granted || it.backgroundScanEnabled) }
+        // Callback is delivered on the main thread mid activity-resume. Do nothing
+        // here that could throw — the VM dispatches the scheduler call to IO with
+        // NonCancellable + try/catch so anything thrown from WorkManager init lands
+        // in our error flow instead of bubbling to the activity uncaught.
+        try {
+            vm.setBackgroundScanEnabled(granted)
+        } catch (t: Throwable) {
+            android.util.Log.e("ApexTrader", "perm callback failed", t)
+        }
     }
 
     Scaffold(

@@ -20,5 +20,19 @@ class ApexApplication : Application(), Configuration.Provider {
     override fun onCreate() {
         super.onCreate()
         if (BuildConfig.DEBUG) Timber.plant(Timber.DebugTree())
+        installCrashHandler()
+    }
+
+    private fun installCrashHandler() {
+        // Daisy-chain on top of the system handler so we still get the standard
+        // "App stopped" dialog + Play Console reporting, but with our own log line
+        // that survives in logcat for diagnosis.
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            try {
+                Timber.e(throwable, "UNCAUGHT on ${thread.name}: ${throwable.javaClass.simpleName}: ${throwable.message}")
+            } catch (_: Throwable) { /* never let our handler block the system one */ }
+            previous?.uncaughtException(thread, throwable)
+        }
     }
 }
