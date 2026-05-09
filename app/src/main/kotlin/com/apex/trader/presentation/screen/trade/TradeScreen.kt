@@ -97,6 +97,7 @@ fun TradeScreen(
             item { MarginCard(ui, vm) }
             item { LeverageCard(ui, vm) }
             item { MarginTypeCard(ui, vm) }
+            item { AutoAttachCard(ui, vm) }
             item { SlTpCard(ui, vm) }
             item { SummaryCard(ui) }
             if (ui.error != null) {
@@ -130,9 +131,13 @@ fun TradeScreen(
                         Text("Leverage: ${ui.leverage}x  (${if (ui.isolated) "ISOLATED" else "CROSS"})")
                         Text("Notional: ${"%.2f".format(ui.notional)} USDT")
                         Text("Quantity: ${"%.6f".format(ui.quantity)}")
-                        Text("SL: ${"%.6f".format(ui.effectiveSl)}", color = ApexBear)
-                        Text("TP1/TP2/TP3: ${"%.4f / %.4f / %.4f".format(ui.effectiveTp1, ui.effectiveTp2, ui.effectiveTp3)}", color = ApexBull)
-                        Text("Risk if SL: ${"%.2f".format(ui.riskUsdt)} USDT", color = ApexHighlight)
+                        if (ui.autoAttachSlTp) {
+                            Text("SL: ${"%.6f".format(ui.effectiveSl)}", color = ApexBear)
+                            Text("TP1/TP2/TP3: ${"%.4f / %.4f / %.4f".format(ui.effectiveTp1, ui.effectiveTp2, ui.effectiveTp3)}", color = ApexBull)
+                            Text("Risk if SL: ${"%.2f".format(ui.riskUsdt)} USDT", color = ApexHighlight)
+                        } else {
+                            Text("⚠ No auto SL/TP — manual management required", color = ApexHighlight)
+                        }
                     }
                 },
                 confirmButton = {
@@ -289,7 +294,28 @@ private fun MarginTypeCard(ui: TradeUiState, vm: TradeViewModel) {
 }
 
 @Composable
+private fun AutoAttachCard(ui: TradeUiState, vm: TradeViewModel) {
+    ApexCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Auto-attach SL & TP", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    if (ui.autoAttachSlTp)
+                        "Stop-loss + 3 take-profit bracket orders will be placed alongside the entry."
+                    else
+                        "Market entry only. You'll need to manage the position manually.",
+                    color = ApexTextMuted,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+            Switch(checked = ui.autoAttachSlTp, onCheckedChange = vm::setAutoAttach)
+        }
+    }
+}
+
+@Composable
 private fun SlTpCard(ui: TradeUiState, vm: TradeViewModel) {
+    if (!ui.autoAttachSlTp) return
     ApexCard {
         Column {
             Text("Stop loss & take profits", style = MaterialTheme.typography.titleMedium)

@@ -54,7 +54,7 @@ class TradingRepository @Inject constructor(
         symbol: String,
         side: SignalSide,
         quantity: Double,
-        stopPrice: Double,
+        stopPrice: Double?,
         takeProfits: List<Double>,
         rules: SymbolRules,
         positionSide: String? = null,
@@ -73,19 +73,21 @@ class TradingRepository @Inject constructor(
             newClientOrderId = clientOrderId("ENTRY")
         )
 
-        runCatching {
-            api.newOrder(
-                symbol = symbol,
-                side = closeSide,
-                positionSide = positionSide,
-                type = "STOP_MARKET",
-                stopPrice = rules.formatPrice(stopPrice),
-                closePosition = true,
-                workingType = "MARK_PRICE",
-                priceProtect = true,
-                newClientOrderId = clientOrderId("SL")
-            )
-        }.onFailure { onBracketError("Stop-loss attach failed: ${it.message}") }
+        if (stopPrice != null && stopPrice > 0) {
+            runCatching {
+                api.newOrder(
+                    symbol = symbol,
+                    side = closeSide,
+                    positionSide = positionSide,
+                    type = "STOP_MARKET",
+                    stopPrice = rules.formatPrice(stopPrice),
+                    closePosition = true,
+                    workingType = "MARK_PRICE",
+                    priceProtect = true,
+                    newClientOrderId = clientOrderId("SL")
+                )
+            }.onFailure { onBracketError("Stop-loss attach failed: ${it.message}") }
+        }
 
         takeProfits.forEachIndexed { idx, tp ->
             runCatching {

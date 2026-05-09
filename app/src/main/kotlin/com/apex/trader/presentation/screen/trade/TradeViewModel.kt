@@ -36,6 +36,7 @@ data class TradeUiState(
     val customTp1: Double? = null,
     val customTp2: Double? = null,
     val customTp3: Double? = null,
+    val autoAttachSlTp: Boolean = true,
     val side: SignalSide = SignalSide.LONG,
     val entryPrice: Double = 0.0,
     val resultMessage: String? = null,
@@ -81,7 +82,7 @@ class TradeViewModel @Inject constructor(
                 val priceFromTicker = marketRepository.get24hTickers()
                     .firstOrNull { it.symbol == symbolArg }
                     ?.lastPrice?.toDoubleOrNull() ?: signal?.price ?: 0.0
-                LoadResult(rules, available, signal, priceFromTicker, settings.defaultLeverage, settings.isolatedMargin)
+                LoadResult(rules, available, signal, priceFromTicker, settings.defaultLeverage, settings.isolatedMargin, settings.autoAttachSlTp)
             }
             _ui.update {
                 if (r.isSuccess) {
@@ -95,7 +96,8 @@ class TradeViewModel @Inject constructor(
                         entryPrice = res.signal?.plan?.entry ?: res.lastPrice,
                         marginUsdt = (res.availableUsdt * 0.05).coerceAtLeast(0.0), // default 5% of free balance
                         leverage = res.defaultLeverage,
-                        isolated = res.defaultIsolated
+                        isolated = res.defaultIsolated,
+                        autoAttachSlTp = res.autoAttachSlTp
                     )
                 } else it.copy(loading = false, error = r.exceptionOrNull()?.message)
             }
@@ -108,12 +110,14 @@ class TradeViewModel @Inject constructor(
         val signal: Signal?,
         val lastPrice: Double,
         val defaultLeverage: Int,
-        val defaultIsolated: Boolean
+        val defaultIsolated: Boolean,
+        val autoAttachSlTp: Boolean
     )
 
     fun setMargin(v: Double) = _ui.update { it.copy(marginUsdt = v.coerceAtLeast(0.0)) }
     fun setLeverage(v: Int) = _ui.update { it.copy(leverage = v.coerceIn(1, 125)) }
     fun setIsolated(v: Boolean) = _ui.update { it.copy(isolated = v) }
+    fun setAutoAttach(v: Boolean) = _ui.update { it.copy(autoAttachSlTp = v) }
     fun setSide(v: SignalSide) = _ui.update { it.copy(side = v) }
     fun setSl(v: Double?) = _ui.update { it.copy(customSl = v) }
     fun setTp1(v: Double?) = _ui.update { it.copy(customTp1 = v) }
@@ -140,16 +144,19 @@ class TradeViewModel @Inject constructor(
                 tradingRepository.setMarginType(s.symbol, s.isolated)
                 tradingRepository.setLeverage(s.symbol, s.leverage)
                 val warnings = mutableListOf<String>()
-                val tps = listOfNotNull(
-                    s.effectiveTp1.takeIf { it > 0 },
-                    s.effectiveTp2.takeIf { it > 0 },
-                    s.effectiveTp3.takeIf { it > 0 }
-                )
+                val tps = if (s.autoAttachSlTp) {
+                    listOfNotNull(
+                        s.effectiveTp1.takeIf { it > 0 },
+                        s.effectiveTp2.takeIf { it > 0 },
+                        s.effectiveTp3.takeIf { it > 0 }
+                    )
+                } else emptyList()
+                val sl = if (s.autoAttachSlTp) s.effectiveSl else null
                 tradingRepository.openMarketWithBrackets(
                     symbol = s.symbol,
                     side = s.side,
                     quantity = s.quantity,
-                    stopPrice = s.effectiveSl,
+                    stopPrice = sl,
                     takeProfits = tps,
                     rules = rules,
                     onBracketError = { warnings += it }

@@ -1,5 +1,9 @@
 package com.apex.trader.presentation.screen.settings
 
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -10,9 +14,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -45,13 +52,24 @@ import com.apex.trader.presentation.theme.ApexTextMuted
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
+    onAboutClick: () -> Unit,
     vm: SettingsViewModel = hiltViewModel()
 ) {
     val s by vm.settings.collectAsStateWithLifecycle()
     val disconnected by vm.disconnected.collectAsStateWithLifecycle()
+    val scheduleError by vm.scheduleError.collectAsStateWithLifecycle()
 
     LaunchedEffect(disconnected) {
         if (disconnected) onBack()
+    }
+
+    // Runtime POST_NOTIFICATIONS permission for Android 13+
+    val notificationPermLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        // Persist the toggle whether the user grants or denies — the worker handles
+        // missing notifications gracefully (no crash), it just won't notify.
+        vm.update { it.copy(backgroundScanEnabled = granted || it.backgroundScanEnabled) }
     }
 
     Scaffold(
@@ -108,6 +126,20 @@ fun SettingsScreen(
                                 onCheckedChange = { v -> vm.update { st -> st.copy(isolatedMargin = v) } }
                             )
                         }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Auto-attach SL & TP")
+                                Text(
+                                    "Place stop-loss and 3 take-profit brackets alongside every entry",
+                                    color = ApexTextMuted,
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                            }
+                            Switch(
+                                checked = s.autoAttachSlTp,
+                                onCheckedChange = { v -> vm.update { st -> st.copy(autoAttachSlTp = v) } }
+                            )
+                        }
                     }
                 }
             }
@@ -120,7 +152,23 @@ fun SettingsScreen(
                             Text("Notify on new high-confidence signals", modifier = Modifier.weight(1f))
                             Switch(
                                 checked = s.backgroundScanEnabled,
-                                onCheckedChange = { v -> vm.update { st -> st.copy(backgroundScanEnabled = v) } }
+                                onCheckedChange = { v ->
+                                    if (v && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                        // Ask for POST_NOTIFICATIONS first; the launcher callback
+                                        // persists the toggle once the system dialog returns.
+                                        notificationPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                    } else {
+                                        vm.update { st -> st.copy(backgroundScanEnabled = v) }
+                                    }
+                                }
+                            )
+                        }
+                        scheduleError?.let { err ->
+                            Text(
+                                "⚠ $err",
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.padding(top = 6.dp)
                             )
                         }
                         Text("Interval: ${s.backgroundScanIntervalMin} min", color = ApexTextMuted)
@@ -187,6 +235,23 @@ fun SettingsScreen(
                                 onCheckedChange = { v -> vm.update { st -> st.copy(biometricLockEnabled = v) } }
                             )
                         }
+                    }
+                }
+            }
+            item {
+                ApexCard(modifier = Modifier.clickable { onAboutClick() }) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Info, contentDescription = null, tint = ApexHighlight)
+                        Spacer(Modifier.padding(end = 12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("About", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                "App version, developer credit, strategy summary",
+                                color = ApexTextMuted,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                        Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, tint = ApexTextMuted)
                     }
                 }
             }

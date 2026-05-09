@@ -7,6 +7,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.apex.trader.presentation.screen.about.AboutScreen
 import com.apex.trader.presentation.screen.positions.PositionsScreen
 import com.apex.trader.presentation.screen.scanner.ScannerScreen
 import com.apex.trader.presentation.screen.settings.SettingsScreen
@@ -22,6 +23,7 @@ object Routes {
     const val TRADE = "trade/{symbol}"
     const val POSITIONS = "positions"
     const val SETTINGS = "settings"
+    const val ABOUT = "about"
 
     fun signalDetail(symbol: String) = "signal/$symbol"
     fun trade(symbol: String) = "trade/$symbol"
@@ -78,7 +80,13 @@ fun ApexNavHost() {
             PositionsScreen(onBack = { navController.popBackStack() })
         }
         composable(Routes.SETTINGS) {
-            SettingsScreen(onBack = { navController.popBackStack() })
+            SettingsScreen(
+                onBack = { navController.popBackStack() },
+                onAboutClick = { navController.navigate(Routes.ABOUT) }
+            )
+        }
+        composable(Routes.ABOUT) {
+            AboutScreen(onBack = { navController.popBackStack() })
         }
     }
 }

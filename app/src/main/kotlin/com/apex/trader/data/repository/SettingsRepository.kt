@@ -20,6 +20,7 @@ data class AppSettings(
     val minConfidence: Int = 70,
     val defaultLeverage: Int = 5,
     val isolatedMargin: Boolean = true,
+    val autoAttachSlTp: Boolean = true,
     val backgroundScanEnabled: Boolean = false,
     val backgroundScanIntervalMin: Int = 15,
     val excludedSymbols: Set<String> = emptySet(),
@@ -44,6 +45,7 @@ class SettingsRepository @Inject constructor(
             prefs[Keys.minConfidence] = next.minConfidence
             prefs[Keys.defaultLeverage] = next.defaultLeverage
             prefs[Keys.isolatedMargin] = next.isolatedMargin
+            prefs[Keys.autoAttachSlTp] = next.autoAttachSlTp
             prefs[Keys.backgroundScanEnabled] = next.backgroundScanEnabled
             prefs[Keys.backgroundScanIntervalMin] = next.backgroundScanIntervalMin
             prefs[Keys.excludedSymbols] = next.excludedSymbols.joinToString(",")
@@ -60,6 +62,7 @@ class SettingsRepository @Inject constructor(
         minConfidence = this[Keys.minConfidence] ?: 70,
         defaultLeverage = this[Keys.defaultLeverage] ?: 5,
         isolatedMargin = this[Keys.isolatedMargin] ?: true,
+        autoAttachSlTp = this[Keys.autoAttachSlTp] ?: true,
         backgroundScanEnabled = this[Keys.backgroundScanEnabled] ?: false,
         backgroundScanIntervalMin = this[Keys.backgroundScanIntervalMin] ?: 15,
         excludedSymbols = (this[Keys.excludedSymbols] ?: "")
@@ -77,6 +80,7 @@ class SettingsRepository @Inject constructor(
         val minConfidence = intPreferencesKey("min_confidence")
         val defaultLeverage = intPreferencesKey("default_leverage")
         val isolatedMargin = booleanPreferencesKey("isolated_margin")
+        val autoAttachSlTp = booleanPreferencesKey("auto_attach_sltp")
         val backgroundScanEnabled = booleanPreferencesKey("bg_scan_enabled")
         val backgroundScanIntervalMin = intPreferencesKey("bg_scan_interval_min")
         val excludedSymbols = stringPreferencesKey("excluded_symbols")
