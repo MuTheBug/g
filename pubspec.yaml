@@ -1,0 +1,50 @@
+name: apex_trader
+description: Multi-timeframe confluence scanner & trader for Binance USDT-M Futures.
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+  flutter: ">=3.22.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+
+  # State management — minimal Riverpod, no codegen
+  flutter_riverpod: ^2.5.1
+
+  # Networking
+  dio: ^5.7.0
+  crypto: ^3.0.6
+
+  # Storage
+  flutter_secure_storage: ^9.2.2
+  shared_preferences: ^2.3.3
+
+  # Charts
+  fl_chart: ^0.69.2
+
+  # Routing
+  go_router: ^14.6.2
+
+  # Misc
+  intl: ^0.19.0
+  collection: ^1.18.0
+
+  # Notifications & background
+  flutter_local_notifications: ^17.2.4
+  permission_handler: ^11.3.1
+  workmanager: ^0.5.2
+
+  # Biometric
+  local_auth: ^2.3.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true

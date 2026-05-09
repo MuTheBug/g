@@ -1,45 +1,50 @@
-# Gradle
-.gradle/
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
 build/
-out/
-captures/
-.cxx/
-local.properties
+.flutter/
 
 # Android
-*.apk
-*.aab
-*.ap_
-*.dex
-*.class
-release/
-debug/
-proguard/
+android/.gradle/
+android/.kotlin/
+android/local.properties
+android/app/release/
+android/app/debug/
+android/app/build/
+android/build/
+android/captures/
+android/key.properties
+*.jks
+*.keystore
+keystore.properties
+google-services.json
 
 # IDE
 .idea/
+.vscode/
 *.iml
 *.iws
 *.ipr
-.vscode/
 .fleet/
-.kotlin/
 
 # OS
 .DS_Store
 Thumbs.db
 
-# Logs / Coverage
+# Logs
 *.log
 hs_err_pid*
 *.hprof
-coverage/
-jacoco/
 
-# Keys / secrets — never commit these
-keystore.properties
-*.jks
-*.keystore
-google-services.json
-api-keys.txt
+# Secrets
 .env
+api-keys.txt
+
+# Generated
+*.g.dart
+!**/golden/**/*.g.dart
+*.freezed.dart
