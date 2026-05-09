@@ -34,6 +34,7 @@ import com.github.mikephil.charting.formatter.ValueFormatter
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import timber.log.Timber
 
 private fun androidx.compose.ui.graphics.Color.toArgb(): Int = AndroidColor.argb(
     (alpha * 255).toInt(), (red * 255).toInt(), (green * 255).toInt(), (blue * 255).toInt()
@@ -79,25 +80,32 @@ fun CandleChart(
             }
         },
         update = { chart ->
-            chart.xAxis.valueFormatter = TimeFormatter(candles)
-            chart.data = data
-            chart.axisLeft.removeAllLimitLines()
-            signal?.let { sig ->
-                fun ll(price: Double, label: String, color: Int) =
-                    LimitLine(price.toFloat(), label).apply {
-                        lineColor = color
-                        lineWidth = 1.2f
-                        textColor = color
-                        textSize = 10f
-                    }
-                chart.axisLeft.addLimitLine(ll(sig.plan.entry, "Entry ${"%.4f".format(sig.plan.entry)}", ApexHighlight.toArgb()))
-                chart.axisLeft.addLimitLine(ll(sig.plan.stopLoss, "SL ${"%.4f".format(sig.plan.stopLoss)}", ApexBear.toArgb()))
-                chart.axisLeft.addLimitLine(ll(sig.plan.takeProfit1, "TP1", ApexBull.toArgb()))
-                chart.axisLeft.addLimitLine(ll(sig.plan.takeProfit2, "TP2", ApexBull.toArgb()))
-                chart.axisLeft.addLimitLine(ll(sig.plan.takeProfit3, "TP3", ApexBull.toArgb()))
+            // MPAndroidChart 3.1.0 has known race conditions during mid-animation
+            // dataset swaps (NPE inside CombinedChartRenderer). Wrap defensively so
+            // a stale frame never crashes the activity hosting the AndroidView.
+            try {
+                chart.xAxis.valueFormatter = TimeFormatter(candles)
+                chart.data = data
+                chart.axisLeft.removeAllLimitLines()
+                signal?.let { sig ->
+                    fun ll(price: Double, label: String, color: Int) =
+                        LimitLine(price.toFloat(), label).apply {
+                            lineColor = color
+                            lineWidth = 1.2f
+                            textColor = color
+                            textSize = 10f
+                        }
+                    chart.axisLeft.addLimitLine(ll(sig.plan.entry, "Entry ${"%.4f".format(sig.plan.entry)}", ApexHighlight.toArgb()))
+                    chart.axisLeft.addLimitLine(ll(sig.plan.stopLoss, "SL ${"%.4f".format(sig.plan.stopLoss)}", ApexBear.toArgb()))
+                    chart.axisLeft.addLimitLine(ll(sig.plan.takeProfit1, "TP1", ApexBull.toArgb()))
+                    chart.axisLeft.addLimitLine(ll(sig.plan.takeProfit2, "TP2", ApexBull.toArgb()))
+                    chart.axisLeft.addLimitLine(ll(sig.plan.takeProfit3, "TP3", ApexBull.toArgb()))
+                }
+                chart.notifyDataSetChanged()
+                chart.invalidate()
+            } catch (t: Throwable) {
+                Timber.w(t, "chart update failed (non-fatal)")
             }
-            chart.notifyDataSetChanged()
-            chart.invalidate()
         }
     )
 }

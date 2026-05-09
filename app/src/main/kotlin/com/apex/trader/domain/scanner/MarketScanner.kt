@@ -6,12 +6,15 @@ import com.apex.trader.data.repository.MarketRepository
 import com.apex.trader.data.repository.SettingsRepository
 import com.apex.trader.domain.strategy.ApexConfluenceStrategy
 import com.apex.trader.domain.strategy.Signal
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import timber.log.Timber
@@ -55,6 +58,7 @@ class MarketScanner @Inject constructor(
         val ltf = Timeframe.fromCode(settings.ltfTimeframe)
 
         val sem = Semaphore(parallelism)
+        val mutex = Mutex()
         val signals = mutableListOf<Signal>()
         var processed = 0
         var errors = 0
@@ -62,24 +66,39 @@ class MarketScanner @Inject constructor(
         val deferreds = symbols.map { symbol ->
             async(Dispatchers.IO) {
                 sem.withPermit {
-                    val signal = runCatching { evaluateOne(symbol, htf, mtf, ltf) }
-                        .onFailure { Timber.w(it, "scan failed for $symbol") }
-                        .getOrNull()
-                    synchronized(signals) {
+                    val signal = try {
+                        evaluateOne(symbol, htf, mtf, ltf)
+                    } catch (ce: CancellationException) {
+                        // Critical: do NOT swallow cancellation — let structured
+                        // concurrency unwind cleanly when the parent scope dies.
+                        throw ce
+                    } catch (t: Throwable) {
+                        Timber.w(t, "scan failed for $symbol")
+                        null
+                    }
+                    val snapshot = mutex.withLock {
                         processed++
                         if (signal != null) signals += signal
-                        if (signal == null) {
-                            // Don't double-count successes as errors.
-                        }
-                        progress(ScanProgress(processed, symbols.size, symbol, signals.toList().sortedByDescending { it.confidence }, errors))
+                        else errors++
+                        ScanProgress(
+                            processed = processed,
+                            total = symbols.size,
+                            current = symbol,
+                            signals = signals.sortedByDescending { it.confidence },
+                            errors = errors
+                        )
                     }
+                    // Emit progress OUTSIDE the lock so a slow / faulty subscriber
+                    // can't block other scanning coroutines.
+                    runCatching { progress(snapshot) }
+                        .onFailure { Timber.w(it, "progress callback threw") }
                     signal
                 }
             }
         }
         deferreds.awaitAll()
-        synchronized(signals) {
-            signals.toList().sortedByDescending { it.confidence }
+        mutex.withLock {
+            signals.sortedByDescending { it.confidence }
         }
     }
 
@@ -112,4 +131,3 @@ class MarketScanner @Inject constructor(
         return (watch + rest.take(take)).distinct()
     }
 }
-

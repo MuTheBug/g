@@ -7,12 +7,12 @@ import com.apex.trader.data.repository.AppSettings
 import com.apex.trader.data.repository.SettingsRepository
 import com.apex.trader.service.ScanWorkerScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
-import timber.log.Timber
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import timber.log.Timber
 import javax.inject.Inject
 
 @HiltViewModel
@@ -34,7 +34,11 @@ class SettingsViewModel @Inject constructor(
     private val _scheduleError = MutableStateFlow<String?>(null)
     val scheduleError = _scheduleError.asStateFlow()
 
+    private val _runNowMessage = MutableStateFlow<String?>(null)
+    val runNowMessage = _runNowMessage.asStateFlow()
+
     fun clearScheduleError() { _scheduleError.value = null }
+    fun clearRunNowMessage() { _runNowMessage.value = null }
 
     fun update(transform: (AppSettings) -> AppSettings) {
         viewModelScope.launch {
@@ -52,11 +56,26 @@ class SettingsViewModel @Inject constructor(
                 }.onFailure {
                     Timber.e(it, "scan scheduler toggle failed")
                     _scheduleError.value = "Couldn't enable background scan: ${it.message}"
-                    // Roll back the toggle so UI matches reality
+                    // Roll back the toggle so UI matches reality.
                     settingsRepository.update { it.copy(backgroundScanEnabled = current.backgroundScanEnabled) }
                 }
             }
         }
+    }
+
+    /**
+     * Trigger a one-shot scan via WorkManager so the user can verify the
+     * background path works end-to-end without waiting for the periodic window.
+     */
+    fun runScanNow() {
+        runCatching { scanScheduler.runOnce() }
+            .onSuccess {
+                _runNowMessage.value = "Scan queued — you'll get a notification per signal found."
+            }
+            .onFailure {
+                Timber.e(it, "manual run-now failed")
+                _scheduleError.value = "Couldn't start a scan: ${it.message}"
+            }
     }
 
     fun disconnect() {

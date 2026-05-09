@@ -1,6 +1,7 @@
 package com.apex.trader.presentation.component
 
 import android.content.Context
+import android.os.Build
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.layout.Arrangement
@@ -61,39 +62,48 @@ fun BiometricGate(
     }
 
     LaunchedEffect(attemptKey) {
-        val activity = context.findFragmentActivity() ?: run {
-            // Should never happen since MainActivity is a ComponentActivity (FragmentActivity).
+        // Wrap the entire prompt setup so a misconfiguration (e.g. unsupported
+        // authenticator combo on this OS version) just unlocks the app rather than
+        // crashing the activity from an uncaught LaunchedEffect exception.
+        try {
+            val activity = context.findFragmentActivity() ?: run {
+                unlocked = true
+                return@LaunchedEffect
+            }
+            val authenticators = allowedAuthenticators()
+            val executor = ContextCompat.getMainExecutor(context)
+            val prompt = BiometricPrompt(
+                activity,
+                executor,
+                object : BiometricPrompt.AuthenticationCallback() {
+                    override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                        error = null
+                        unlocked = true
+                    }
+                    override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                        error = errString.toString()
+                    }
+                    override fun onAuthenticationFailed() {
+                        error = "Not recognized — try again"
+                    }
+                }
+            )
+            val infoBuilder = BiometricPrompt.PromptInfo.Builder()
+                .setTitle("Apex Trader")
+                .setSubtitle("Unlock to view your account & trade")
+                .setAllowedAuthenticators(authenticators)
+            // BiometricPrompt API contract: setNegativeButtonText is only valid (in fact
+            // required) when DEVICE_CREDENTIAL is NOT in the allowed authenticators.
+            if ((authenticators and BiometricManager.Authenticators.DEVICE_CREDENTIAL) == 0) {
+                infoBuilder.setNegativeButtonText("Cancel")
+            }
+            prompt.authenticate(infoBuilder.build())
+        } catch (t: Throwable) {
+            // Don't crash if the prompt can't be configured — let the user in and
+            // surface the issue inline.
+            error = "Biometric unavailable: ${t.message}"
             unlocked = true
-            return@LaunchedEffect
         }
-        val executor = ContextCompat.getMainExecutor(context)
-        val prompt = BiometricPrompt(
-            activity,
-            executor,
-            object : BiometricPrompt.AuthenticationCallback() {
-                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                    error = null
-                    unlocked = true
-                }
-                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                    error = errString.toString()
-                }
-                override fun onAuthenticationFailed() {
-                    error = "Not recognized — try again"
-                }
-            }
-        )
-        val info = BiometricPrompt.PromptInfo.Builder()
-            .setTitle("Apex Trader")
-            .setSubtitle("Unlock to view your account & trade")
-            .setAllowedAuthenticators(allowedAuthenticators())
-            .also { b ->
-                if ((allowedAuthenticators() and BiometricManager.Authenticators.DEVICE_CREDENTIAL) == 0) {
-                    b.setNegativeButtonText("Cancel")
-                }
-            }
-            .build()
-        prompt.authenticate(info)
     }
 
     Box(modifier = Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
@@ -130,15 +140,30 @@ fun BiometricGate(
     }
 }
 
-private fun canAuthenticate(context: Context): Boolean {
+private fun canAuthenticate(context: Context): Boolean = try {
     val mgr = BiometricManager.from(context)
-    return mgr.canAuthenticate(allowedAuthenticators()) == BiometricManager.BIOMETRIC_SUCCESS
+    mgr.canAuthenticate(allowedAuthenticators()) == BiometricManager.BIOMETRIC_SUCCESS
+} catch (t: Throwable) {
+    false
 }
 
+/**
+ * Authenticator combinations have hard restrictions:
+ *  - BIOMETRIC_STRONG | BIOMETRIC_WEAK is always invalid.
+ *  - BIOMETRIC_STRONG | DEVICE_CREDENTIAL is only legal on API >= 30.
+ *  - BIOMETRIC_WEAK | DEVICE_CREDENTIAL is only legal on API >= 30.
+ *  - DEVICE_CREDENTIAL alone is only legal on API >= 30.
+ *  - Any other combinations throw IllegalArgumentException at PromptInfo build time.
+ *
+ * We pick the strongest legal combination per API level so the prompt always builds.
+ */
 private fun allowedAuthenticators(): Int =
-    BiometricManager.Authenticators.BIOMETRIC_STRONG or
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
         BiometricManager.Authenticators.BIOMETRIC_WEAK or
-        BiometricManager.Authenticators.DEVICE_CREDENTIAL
+            BiometricManager.Authenticators.DEVICE_CREDENTIAL
+    } else {
+        BiometricManager.Authenticators.BIOMETRIC_STRONG
+    }
 
 private fun Context.findFragmentActivity(): FragmentActivity? {
     var ctx: Context? = this

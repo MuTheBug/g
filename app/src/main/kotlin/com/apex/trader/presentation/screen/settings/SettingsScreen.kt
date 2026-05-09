@@ -58,6 +58,7 @@ fun SettingsScreen(
     val s by vm.settings.collectAsStateWithLifecycle()
     val disconnected by vm.disconnected.collectAsStateWithLifecycle()
     val scheduleError by vm.scheduleError.collectAsStateWithLifecycle()
+    val runNowMessage by vm.runNowMessage.collectAsStateWithLifecycle()
 
     LaunchedEffect(disconnected) {
         if (disconnected) onBack()
@@ -171,6 +172,19 @@ fun SettingsScreen(
                                 modifier = Modifier.padding(top = 6.dp)
                             )
                         }
+                        runNowMessage?.let { msg ->
+                            Text(
+                                msg,
+                                color = ApexHighlight,
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.padding(top = 6.dp)
+                            )
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        androidx.compose.material3.OutlinedButton(
+                            onClick = { vm.runScanNow() },
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text("Run a scan now") }
                         Text("Interval: ${s.backgroundScanIntervalMin} min", color = ApexTextMuted)
                         Slider(
                             value = s.backgroundScanIntervalMin.toFloat(),
