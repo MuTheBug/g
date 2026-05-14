@@ -15,6 +15,10 @@ class AppSettings {
     this.htfTimeframe = '4h',
     this.mtfTimeframe = '1h',
     this.ltfTimeframe = '15m',
+    this.autoTradeEnabled = false,
+    this.autoTradeMaxOpenPositions = 3,
+    this.autoTradeMarginUsdt = 10,
+    this.autoTradeMinConfidence = 80,
   });
 
   final int scanLimit;
@@ -31,6 +35,12 @@ class AppSettings {
   final String mtfTimeframe;
   final String ltfTimeframe;
 
+  // Auto-trade
+  final bool autoTradeEnabled;
+  final int autoTradeMaxOpenPositions;
+  final double autoTradeMarginUsdt;
+  final int autoTradeMinConfidence;
+
   AppSettings copyWith({
     int? scanLimit,
     int? minConfidence,
@@ -45,6 +55,10 @@ class AppSettings {
     String? htfTimeframe,
     String? mtfTimeframe,
     String? ltfTimeframe,
+    bool? autoTradeEnabled,
+    int? autoTradeMaxOpenPositions,
+    double? autoTradeMarginUsdt,
+    int? autoTradeMinConfidence,
   }) =>
       AppSettings(
         scanLimit: scanLimit ?? this.scanLimit,
@@ -60,6 +74,10 @@ class AppSettings {
         htfTimeframe: htfTimeframe ?? this.htfTimeframe,
         mtfTimeframe: mtfTimeframe ?? this.mtfTimeframe,
         ltfTimeframe: ltfTimeframe ?? this.ltfTimeframe,
+        autoTradeEnabled: autoTradeEnabled ?? this.autoTradeEnabled,
+        autoTradeMaxOpenPositions: autoTradeMaxOpenPositions ?? this.autoTradeMaxOpenPositions,
+        autoTradeMarginUsdt: autoTradeMarginUsdt ?? this.autoTradeMarginUsdt,
+        autoTradeMinConfidence: autoTradeMinConfidence ?? this.autoTradeMinConfidence,
       );
 }
 
@@ -80,6 +98,10 @@ class SettingsRepository {
   static const _kHtf = 'htfTimeframe';
   static const _kMtf = 'mtfTimeframe';
   static const _kLtf = 'ltfTimeframe';
+  static const _kAtEnabled = 'autoTradeEnabled';
+  static const _kAtMax = 'autoTradeMaxOpenPositions';
+  static const _kAtMargin = 'autoTradeMarginUsdt';
+  static const _kAtMinConf = 'autoTradeMinConfidence';
 
   Future<SharedPreferences> get _prefs async => SharedPreferences.getInstance();
 
@@ -100,6 +122,10 @@ class SettingsRepository {
         htfTimeframe: p.getString(_kHtf) ?? '4h',
         mtfTimeframe: p.getString(_kMtf) ?? '1h',
         ltfTimeframe: p.getString(_kLtf) ?? '15m',
+        autoTradeEnabled: p.getBool(_kAtEnabled) ?? false,
+        autoTradeMaxOpenPositions: p.getInt(_kAtMax) ?? 3,
+        autoTradeMarginUsdt: p.getDouble(_kAtMargin) ?? 10,
+        autoTradeMinConfidence: p.getInt(_kAtMinConf) ?? 80,
       );
     } catch (_) {
       return const AppSettings();
@@ -123,6 +149,10 @@ class SettingsRepository {
         p.setString(_kHtf, s.htfTimeframe),
         p.setString(_kMtf, s.mtfTimeframe),
         p.setString(_kLtf, s.ltfTimeframe),
+        p.setBool(_kAtEnabled, s.autoTradeEnabled),
+        p.setInt(_kAtMax, s.autoTradeMaxOpenPositions),
+        p.setDouble(_kAtMargin, s.autoTradeMarginUsdt),
+        p.setInt(_kAtMinConf, s.autoTradeMinConfidence),
       ]);
     } catch (_) {/* tolerate disk failure */}
   }

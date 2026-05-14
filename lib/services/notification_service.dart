@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:permission_handler/permission_handler.dart';
 
 class NotificationService {
   NotificationService._();
@@ -20,27 +19,42 @@ class NotificationService {
       await _plugin.initialize(init);
       _initialized = true;
     } catch (e) {
-      // Never let notification setup crash the app — the rest of the app works fine
-      // without notifications.
+      // Never let notification setup crash the app — the rest of the app works
+      // fine without notifications.
       debugPrint('Notification init failed: $e');
     }
   }
 
+  /// Use the plugin's native Android 13+ permission request rather than going
+  /// through `permission_handler`, which has known crashes on Flutter Android
+  /// setups where the activity isn't fully ready when the system dialog
+  /// returns. The plugin handles the FragmentActivity context correctly.
   Future<bool> requestNotificationPermission() async {
     if (!Platform.isAndroid) return true;
+    await ensureInitialized();
     try {
-      final status = await Permission.notification.request();
-      return status.isGranted;
-    } catch (_) {
+      final android =
+          _plugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+      if (android == null) return true; // Plugin unavailable — treat as ok.
+      final granted = await android.requestNotificationsPermission();
+      return granted ?? true; // null on older Androids = no permission needed.
+    } catch (e) {
+      debugPrint('requestNotificationPermission failed: $e');
       return false;
     }
   }
 
   Future<bool> areNotificationsAllowed() async {
     if (!Platform.isAndroid) return true;
+    await ensureInitialized();
     try {
-      return await Permission.notification.isGranted;
-    } catch (_) {
+      final android =
+          _plugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+      if (android == null) return true;
+      final enabled = await android.areNotificationsEnabled();
+      return enabled ?? true;
+    } catch (e) {
+      debugPrint('areNotificationsAllowed failed: $e');
       return false;
     }
   }

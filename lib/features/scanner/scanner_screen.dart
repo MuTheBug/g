@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme.dart';
 import '../../domain/strategy.dart';
+import '../../services/foreground_service.dart';
+import '../../services/notification_service.dart';
 import '../../widgets/common.dart';
 import 'scanner_controller.dart';
 
@@ -34,6 +36,31 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
     });
   }
 
+  Future<void> _minimize(BuildContext context) async {
+    final granted = await NotificationService.instance.areNotificationsAllowed();
+    if (!granted) {
+      final ok = await NotificationService.instance.requestNotificationPermission();
+      if (!ok && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Notification permission needed to keep the app running in the background.',
+            ),
+          ),
+        );
+        return;
+      }
+    }
+    final started = await ApexForegroundService.instance.start();
+    if (!started && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Couldn't start the persistent notification.")),
+      );
+      return;
+    }
+    await ApexForegroundService.instance.minimize();
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = ref.watch(scannerControllerProvider);
@@ -43,6 +70,11 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
       appBar: AppBar(
         title: const Text('Apex Scanner'),
         actions: [
+          IconButton(
+            tooltip: 'Minimize (keep running)',
+            onPressed: () => _minimize(context),
+            icon: const Icon(Icons.minimize),
+          ),
           IconButton(
             tooltip: 'Positions',
             onPressed: widget.onPositionsTap,
@@ -102,6 +134,23 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Text('⚠ ${s.error}', style: const TextStyle(color: ApexColors.bear)),
+            ),
+          if (s.autoTradePlaced.isNotEmpty || s.autoTradeWarnings.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ...s.autoTradePlaced.map(
+                    (p) => Text('✓ Auto-traded $p',
+                        style: const TextStyle(color: ApexColors.bull, fontSize: 12.5)),
+                  ),
+                  ...s.autoTradeWarnings.map(
+                    (w) => Text('⚠ $w',
+                        style: const TextStyle(color: ApexColors.highlight, fontSize: 12.5)),
+                  ),
+                ],
+              ),
             ),
           Expanded(
             child: s.signals.isEmpty && !s.scanning

@@ -18,9 +18,11 @@ class ApexApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final credsAsync = ref.watch(credentialsProvider);
-    final hasCreds = credsAsync.valueOrNull != null;
-    final router = _buildRouter(hasCredsInitially: hasCreds);
+    // Read once for the initial location; later credential changes are handled
+    // by individual screens (the Setup screen redirects on save, Settings'
+    // disconnect goes back to /setup).
+    final creds = ref.read(credentialsProvider);
+    final router = _buildRouter(hasCredsInitially: creds != null);
 
     return MaterialApp.router(
       title: 'Apex Trader',
@@ -28,8 +30,6 @@ class ApexApp extends ConsumerWidget {
       theme: buildApexTheme(),
       routerConfig: router,
       builder: (context, child) {
-        // Wrap the entire navigator in the biometric gate so it appears once at
-        // launch; it's a no-op when the lock is disabled or not supported.
         return BiometricGate(child: child ?? const SizedBox.shrink());
       },
     );
@@ -39,18 +39,21 @@ class ApexApp extends ConsumerWidget {
     return GoRouter(
       initialLocation: hasCredsInitially ? '/scanner' : '/setup',
       routes: [
+        // Setup is a "leaf" — there's nothing to go back to from here.
         GoRoute(
           path: '/setup',
-          builder: (_, __) => SetupScreen(
-            onSaved: () => GoRouter.of(_).go('/scanner'),
+          builder: (ctx, __) => SetupScreen(
+            onSaved: () => ctx.go('/scanner'),
           ),
         ),
+        // Scanner is the home of the app stack. Forward navigations from here
+        // PUSH so the AppBar back button works on those screens.
         GoRoute(
           path: '/scanner',
           builder: (ctx, __) => ScannerScreen(
-            onSignalTap: (symbol) => ctx.go('/signal/$symbol'),
-            onPositionsTap: () => ctx.go('/positions'),
-            onSettingsTap: () => ctx.go('/settings'),
+            onSignalTap: (symbol) => ctx.push('/signal/$symbol'),
+            onPositionsTap: () => ctx.push('/positions'),
+            onSettingsTap: () => ctx.push('/settings'),
           ),
         ),
         GoRoute(
@@ -59,7 +62,7 @@ class ApexApp extends ConsumerWidget {
             final symbol = state.pathParameters['symbol']!;
             return SignalDetailScreen(
               symbol: symbol,
-              onTrade: () => ctx.go('/trade/$symbol'),
+              onTrade: () => ctx.push('/trade/$symbol'),
             );
           },
         ),
@@ -69,7 +72,16 @@ class ApexApp extends ConsumerWidget {
             final symbol = state.pathParameters['symbol']!;
             return TradeScreen(
               symbol: symbol,
-              onDone: () => ctx.go('/scanner'),
+              // After a successful order, pop back to whatever pushed us
+              // (Signal Detail or Scanner). If we somehow can't pop, fall
+              // through to the scanner.
+              onDone: () {
+                if (ctx.canPop()) {
+                  ctx.pop();
+                } else {
+                  ctx.go('/scanner');
+                }
+              },
             );
           },
         ),
@@ -80,7 +92,8 @@ class ApexApp extends ConsumerWidget {
         GoRoute(
           path: '/settings',
           builder: (ctx, __) => SettingsScreen(
-            onAbout: () => ctx.go('/about'),
+            onAbout: () => ctx.push('/about'),
+            // Disconnect blows the stack and lands on /setup.
             onDisconnect: () => ctx.go('/setup'),
           ),
         ),

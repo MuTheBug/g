@@ -14,6 +14,17 @@ import 'binance_signer.dart';
 const _kProd = 'https://fapi.binance.com';
 const _kTest = 'https://testnet.binancefuture.com';
 
+/// Raised when Binance returns a non-zero `code` in the response body. Carries
+/// the structured code + msg so the UI can show what actually went wrong
+/// instead of a generic "DioException" string.
+class BinanceApiException implements Exception {
+  BinanceApiException(this.code, this.message);
+  final int code;
+  final String message;
+  @override
+  String toString() => 'Binance $code: $message';
+}
+
 class BinanceApi {
   BinanceApi(this._creds) {
     _dio = Dio(
@@ -28,6 +39,7 @@ class BinanceApi {
     );
     _dio.interceptors.add(_AuthInterceptor(_creds));
     _dio.interceptors.add(_RetryInterceptor(_dio));
+    _dio.interceptors.add(_BinanceErrorInterceptor());
   }
 
   late final Dio _dio;
@@ -81,6 +93,18 @@ class BinanceApi {
     return (r.data ?? const [])
         .map((e) => Candle.fromArray(e as List<dynamic>))
         .toList();
+  }
+
+  /// Premium index / mark price for a symbol. Used to validate SL/TP direction
+  /// before placing brackets so we don't get a -2021 "would immediately trigger".
+  Future<double> getMarkPrice(String symbol) async {
+    final r = await _dio.get<Map<String, dynamic>>(
+      '$_base/fapi/v1/premiumIndex',
+      queryParameters: {'symbol': symbol},
+    );
+    final v = r.data?['markPrice'];
+    if (v == null) return 0;
+    return double.tryParse(v.toString()) ?? 0;
   }
 
   // --------- Account / Trade (signed) ---------
@@ -223,6 +247,29 @@ class _AuthInterceptor extends Interceptor {
     return p.entries
         .map((e) => '${Uri.encodeQueryComponent(e.key)}=${Uri.encodeQueryComponent(e.value.toString())}')
         .join('&');
+  }
+}
+
+/// Unwraps Binance's `{code, msg}` error body into a typed BinanceApiException
+/// so callers can surface "Order would immediately trigger" instead of
+/// "DioException [bad response]: 400".
+class _BinanceErrorInterceptor extends Interceptor {
+  @override
+  void onError(DioException err, ErrorInterceptorHandler handler) {
+    final body = err.response?.data;
+    if (body is Map && body['code'] is num && body['msg'] is String) {
+      final code = (body['code'] as num).toInt();
+      final msg = body['msg'] as String;
+      return handler.reject(
+        DioException(
+          requestOptions: err.requestOptions,
+          response: err.response,
+          type: err.type,
+          error: BinanceApiException(code, msg),
+        ),
+      );
+    }
+    return handler.next(err);
   }
 }
 

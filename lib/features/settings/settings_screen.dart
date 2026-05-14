@@ -5,6 +5,7 @@ import '../../core/theme.dart';
 import '../../data/repositories/settings_repository.dart';
 import '../../providers.dart';
 import '../../services/background_service.dart';
+import '../../services/foreground_service.dart';
 import '../../services/notification_service.dart';
 import '../../widgets/common.dart';
 
@@ -43,14 +44,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         await BackgroundService.instance.disablePeriodic();
       }
       if (!mounted) return;
-      setState(() {
-        _scheduleError = null;
-      });
+      setState(() => _scheduleError = null);
     } catch (e) {
       if (!mounted) return;
-      // Roll back the toggle so UI matches reality.
       await notifier.update((p) => p.copyWith(backgroundScanEnabled: s.backgroundScanEnabled));
-      setState(() => _scheduleError = 'Couldn\'t enable background scan: $e');
+      setState(() => _scheduleError = "Couldn't enable background scan: $e");
     }
   }
 
@@ -69,12 +67,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       await BackgroundService.instance.runOnce();
       if (!mounted) return;
       setState(() {
-        _runNowMessage = 'Scan queued — you\'ll get a notification per signal found.';
+        _runNowMessage = "Scan queued — you'll get a notification per signal found.";
         _scheduleError = null;
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() => _scheduleError = 'Couldn\'t start a scan: $e');
+      setState(() => _scheduleError = "Couldn't start a scan: $e");
     }
   }
 
@@ -96,6 +94,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
+        // -------- Scanner --------
         ApexCard(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -119,13 +118,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 min: 50,
                 max: 95,
                 divisions: 45,
-                onChanged: (v) => notifier.update(
-                    (st) => st.copyWith(minConfidence: v.round().clamp(50, 95))),
+                onChanged: (v) => notifier
+                    .update((st) => st.copyWith(minConfidence: v.round().clamp(50, 95))),
               ),
             ],
           ),
         ),
         const SizedBox(height: 10),
+
+        // -------- Default order params --------
         ApexCard(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -143,55 +144,110 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 onChanged: (v) => notifier
                     .update((st) => st.copyWith(defaultLeverage: v.round().clamp(1, 50))),
               ),
-              Row(
-                children: [
-                  const Expanded(child: Text('Isolated margin')),
-                  Switch(
-                    value: s.isolatedMargin,
-                    onChanged: (v) => notifier.update((st) => st.copyWith(isolatedMargin: v)),
+              Row(children: [
+                const Expanded(child: Text('Isolated margin')),
+                Switch(
+                  value: s.isolatedMargin,
+                  onChanged: (v) => notifier.update((st) => st.copyWith(isolatedMargin: v)),
+                ),
+              ]),
+              Row(children: [
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Auto-attach SL & TP'),
+                      Text(
+                        'Place stop-loss and 3 take-profit brackets alongside every entry',
+                        style: TextStyle(color: ApexColors.textMuted, fontSize: 12),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-              Row(
-                children: [
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Auto-attach SL & TP'),
-                        Text(
-                          'Place stop-loss and 3 take-profit brackets alongside every entry',
-                          style: TextStyle(color: ApexColors.textMuted, fontSize: 12),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Switch(
-                    value: s.autoAttachSlTp,
-                    onChanged: (v) => notifier.update((st) => st.copyWith(autoAttachSlTp: v)),
-                  ),
-                ],
-              ),
+                ),
+                Switch(
+                  value: s.autoAttachSlTp,
+                  onChanged: (v) => notifier.update((st) => st.copyWith(autoAttachSlTp: v)),
+                ),
+              ]),
             ],
           ),
         ),
         const SizedBox(height: 10),
+
+        // -------- Auto-trade --------
+        ApexCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Auto-trade', style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 6),
+              const Text(
+                "When ON, the scanner immediately places trades for every signal "
+                "above your confidence threshold (up to the max-open-positions cap). "
+                "Sized with the per-trade margin below; brackets follow the "
+                "'Auto-attach SL & TP' toggle.",
+                style: TextStyle(color: ApexColors.textMuted, fontSize: 12.5),
+              ),
+              const SizedBox(height: 8),
+              Row(children: [
+                const Expanded(child: Text('Enable auto-trade')),
+                Switch(
+                  value: s.autoTradeEnabled,
+                  onChanged: (v) =>
+                      notifier.update((st) => st.copyWith(autoTradeEnabled: v)),
+                ),
+              ]),
+              if (s.autoTradeEnabled) ...[
+                const SizedBox(height: 6),
+                Text('Max open positions: ${s.autoTradeMaxOpenPositions}',
+                    style: const TextStyle(color: ApexColors.textMuted)),
+                Slider(
+                  value: s.autoTradeMaxOpenPositions.toDouble(),
+                  min: 1,
+                  max: 20,
+                  divisions: 19,
+                  onChanged: (v) => notifier.update(
+                      (st) => st.copyWith(autoTradeMaxOpenPositions: v.round())),
+                ),
+                Text(
+                    'Min auto-trade confidence: ${s.autoTradeMinConfidence}%',
+                    style: const TextStyle(color: ApexColors.textMuted)),
+                Slider(
+                  value: s.autoTradeMinConfidence.toDouble(),
+                  min: 60,
+                  max: 95,
+                  divisions: 35,
+                  onChanged: (v) => notifier.update(
+                      (st) => st.copyWith(autoTradeMinConfidence: v.round())),
+                ),
+                _MarginField(
+                  initial: s.autoTradeMarginUsdt,
+                  onChanged: (v) =>
+                      notifier.update((st) => st.copyWith(autoTradeMarginUsdt: v)),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  '⚠ Auto-trade will place real orders without prompting. '
+                  'Start small and test on Testnet.',
+                  style: TextStyle(color: ApexColors.highlight, fontSize: 12.5),
+                ),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+
+        // -------- Background scan --------
         ApexCard(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text('Background scan', style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 8),
-              Row(
-                children: [
-                  const Expanded(
-                      child: Text('Notify on new high-confidence signals')),
-                  Switch(
-                    value: s.backgroundScanEnabled,
-                    onChanged: _toggleBackground,
-                  ),
-                ],
-              ),
+              Row(children: [
+                const Expanded(child: Text('Notify on new high-confidence signals')),
+                Switch(value: s.backgroundScanEnabled, onChanged: _toggleBackground),
+              ]),
               Text('Interval: ${s.backgroundScanIntervalMin} min',
                   style: const TextStyle(color: ApexColors.textMuted)),
               Slider(
@@ -220,10 +276,26 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   child: const Text('Run a scan now'),
                 ),
               ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
+                  onPressed: () async {
+                    await ApexForegroundService.instance.stop();
+                    if (!mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Foreground notification removed')),
+                    );
+                  },
+                  child: const Text('Stop persistent notification'),
+                ),
+              ),
             ],
           ),
         ),
         const SizedBox(height: 10),
+
+        // -------- Timeframes --------
         ApexCard(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -240,38 +312,38 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
         ),
         const SizedBox(height: 10),
+
+        // -------- Biometric --------
         ApexCard(
-          child: Row(
-            children: [
-              const Expanded(child: Text('Biometric lock on launch')),
-              Switch(
-                value: s.biometricLockEnabled,
-                onChanged: (v) =>
-                    notifier.update((st) => st.copyWith(biometricLockEnabled: v)),
-              ),
-            ],
-          ),
+          child: Row(children: [
+            const Expanded(child: Text('Biometric lock on launch')),
+            Switch(
+              value: s.biometricLockEnabled,
+              onChanged: (v) =>
+                  notifier.update((st) => st.copyWith(biometricLockEnabled: v)),
+            ),
+          ]),
         ),
         const SizedBox(height: 10),
+
+        // -------- About + disconnect --------
         ApexCard(
           onTap: widget.onAbout,
-          child: Row(
-            children: [
-              const Icon(Icons.info_outline, color: ApexColors.highlight),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('About', style: Theme.of(context).textTheme.titleMedium),
-                    const Text('App version, developer credit, strategy summary',
-                        style: TextStyle(color: ApexColors.textMuted)),
-                  ],
-                ),
+          child: Row(children: [
+            const Icon(Icons.info_outline, color: ApexColors.highlight),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('About', style: Theme.of(context).textTheme.titleMedium),
+                  const Text('App version, developer credit, strategy summary',
+                      style: TextStyle(color: ApexColors.textMuted)),
+                ],
               ),
-              const Icon(Icons.open_in_new, color: ApexColors.textMuted),
-            ],
-          ),
+            ),
+            const Icon(Icons.open_in_new, color: ApexColors.textMuted),
+          ]),
         ),
         const SizedBox(height: 14),
         SizedBox(
@@ -328,6 +400,50 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             }).toList(),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _MarginField extends StatefulWidget {
+  const _MarginField({required this.initial, required this.onChanged});
+  final double initial;
+  final void Function(double) onChanged;
+
+  @override
+  State<_MarginField> createState() => _MarginFieldState();
+}
+
+class _MarginFieldState extends State<_MarginField> {
+  late final TextEditingController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = TextEditingController(text: widget.initial.toStringAsFixed(2));
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: TextField(
+        controller: _ctrl,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        decoration: const InputDecoration(
+          labelText: 'Margin per auto-trade (USDT)',
+          isDense: true,
+        ),
+        onChanged: (v) {
+          final parsed = double.tryParse(v);
+          if (parsed != null && parsed > 0) widget.onChanged(parsed);
+        },
       ),
     );
   }
