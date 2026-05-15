@@ -341,6 +341,37 @@ class BinanceApi {
     };
   }
 
+  // --------- User-data stream lifecycle ---------
+
+  /// Starts a user-data stream and returns the listenKey. The listenKey is
+  /// then used as the URL suffix for the WS connection
+  /// (`<host>/ws/<listenKey>`). Binance auto-expires keys after 60 minutes,
+  /// so callers should run [keepaliveUserDataStream] every 30 minutes.
+  Future<String> startUserDataStream() async {
+    final r = await _dio.post<Map<String, dynamic>>(
+      '$_base/fapi/v1/listenKey',
+      options: Options(extra: {'signed': true}),
+    );
+    return r.data?['listenKey'] as String? ?? '';
+  }
+
+  /// Resets the listenKey TTL back to 60 minutes. Call every 30 min while a
+  /// user-data WS is open. Returns the (unchanged) listenKey on success.
+  Future<void> keepaliveUserDataStream() async {
+    await _dio.put<Map<String, dynamic>>(
+      '$_base/fapi/v1/listenKey',
+      options: Options(extra: {'signed': true}),
+    );
+  }
+
+  /// Closes the user-data stream and invalidates the listenKey.
+  Future<void> closeUserDataStream() async {
+    await _dio.delete<Map<String, dynamic>>(
+      '$_base/fapi/v1/listenKey',
+      options: Options(extra: {'signed': true}),
+    );
+  }
+
   Future<void> cancelAllOrders(String symbol) async {
     await _dio.delete<Map<String, dynamic>>(
       '$_base/fapi/v1/allOpenOrders',

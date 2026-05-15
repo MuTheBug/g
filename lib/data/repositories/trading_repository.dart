@@ -1,9 +1,10 @@
 import 'package:dio/dio.dart';
 
+import '../../domain/strategy.dart';
 import '../api/binance_api.dart';
 import '../models/account.dart';
 import '../models/symbol_rules.dart';
-import '../../domain/strategy.dart';
+import 'broker.dart';
 
 class BracketResult {
   const BracketResult({required this.entry, required this.warnings});
@@ -44,7 +45,7 @@ class OrderTestReport {
   Iterable<OrderTestResult> get failed => results.where((r) => !r.passed);
 }
 
-class TradingRepository {
+class TradingRepository implements Broker {
   TradingRepository(this._api);
   final BinanceApi _api;
 

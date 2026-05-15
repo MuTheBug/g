@@ -139,7 +139,19 @@ class _PositionsScreenState extends ConsumerState<PositionsScreen> {
   }
 
   Widget _positionCard(Position p) {
-    final pnl = p.unrealizedProfit;
+    // Subscribe to a live mark-price stream for this symbol and compute
+    // unrealized P&L on every tick. We use the cached `p.markPrice` /
+    // `p.unrealizedProfit` only as the initial value while the first
+    // WebSocket frame is in flight.
+    final markAsync = ref.watch(markPriceStreamProvider(p.symbol));
+    final liveMark = markAsync.maybeWhen(
+      data: (t) => t.markPrice,
+      orElse: () => p.markPrice,
+    );
+    final livePnl = liveMark > 0
+        ? (liveMark - p.entryPrice) * p.positionAmt
+        : p.unrealizedProfit;
+
     return ApexCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -157,8 +169,8 @@ class _PositionsScreenState extends ConsumerState<PositionsScreen> {
           const SizedBox(height: 6),
           KeyValueRow(label: 'Quantity', value: p.positionAmt.toStringAsFixed(6)),
           KeyValueRow(label: 'Entry', value: p.entryPrice.toStringAsFixed(6)),
-          if (p.markPrice > 0)
-            KeyValueRow(label: 'Mark', value: p.markPrice.toStringAsFixed(6)),
+          if (liveMark > 0)
+            KeyValueRow(label: 'Mark', value: liveMark.toStringAsFixed(6)),
           if (p.liquidationPrice > 0)
             KeyValueRow(
                 label: 'Liquidation',
@@ -166,8 +178,8 @@ class _PositionsScreenState extends ConsumerState<PositionsScreen> {
                 valueColor: ApexColors.bear),
           KeyValueRow(
             label: 'Unrealized PnL',
-            value: '${pnl.toStringAsFixed(4)} USDT',
-            valueColor: pnl >= 0 ? ApexColors.bull : ApexColors.bear,
+            value: '${livePnl.toStringAsFixed(4)} USDT',
+            valueColor: livePnl >= 0 ? ApexColors.bull : ApexColors.bear,
           ),
           const SizedBox(height: 10),
           SizedBox(

@@ -15,12 +15,14 @@ class ScannerScreen extends ConsumerStatefulWidget {
     required this.onPositionsTap,
     required this.onSettingsTap,
     required this.onJournalTap,
+    required this.onBacktestTap,
   });
 
   final void Function(String symbol) onSignalTap;
   final VoidCallback onPositionsTap;
   final VoidCallback onSettingsTap;
   final VoidCallback onJournalTap;
+  final VoidCallback onBacktestTap;
 
   @override
   ConsumerState<ScannerScreen> createState() => _ScannerScreenState();
@@ -76,6 +78,11 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
             tooltip: 'Minimize (keep running)',
             onPressed: () => _minimize(context),
             icon: const Icon(Icons.minimize),
+          ),
+          IconButton(
+            tooltip: 'Backtest',
+            onPressed: widget.onBacktestTap,
+            icon: const Icon(Icons.history_toggle_off_outlined),
           ),
           IconButton(
             tooltip: 'Journal',

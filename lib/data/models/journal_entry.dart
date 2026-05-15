@@ -29,6 +29,7 @@ class JournalEntry {
     this.realizedR,
     this.note,
     this.autoTraded = false,
+    this.paper = false,
   });
 
   final String id;
@@ -51,6 +52,7 @@ class JournalEntry {
   final double? realizedR; // P&L expressed in R-multiples
   final String? note;
   final bool autoTraded;
+  final bool paper;
 
   /// Per-share R value (price distance from entry to stop). Used to translate
   /// $ P&L into R-multiples when we don't have a fee-accurate value.
@@ -87,6 +89,7 @@ class JournalEntry {
         realizedR: realizedR ?? this.realizedR,
         note: note ?? this.note,
         autoTraded: autoTraded,
+        paper: paper,
       );
 
   Map<String, dynamic> toJson() => {
@@ -110,6 +113,7 @@ class JournalEntry {
         if (realizedR != null) 'realizedR': realizedR,
         if (note != null) 'note': note,
         'autoTraded': autoTraded,
+        'paper': paper,
       };
 
   static JournalEntry fromJson(Map<String, dynamic> j) => JournalEntry(
@@ -135,6 +139,7 @@ class JournalEntry {
         realizedR: (j['realizedR'] as num?)?.toDouble(),
         note: j['note'] as String?,
         autoTraded: j['autoTraded'] as bool? ?? false,
+        paper: j['paper'] as bool? ?? false,
       );
 
   String encode() => jsonEncode(toJson());

@@ -1,10 +1,16 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'data/api/binance_api.dart';
+import 'data/api/binance_ws.dart';
 import 'data/local/secure_credential_store.dart';
-import 'data/repositories/settings_repository.dart';
+import 'data/repositories/broker.dart';
 import 'data/repositories/journal_repository.dart';
+import 'data/repositories/paper_trading_repository.dart';
+import 'data/repositories/settings_repository.dart';
 import 'data/repositories/trading_repository.dart';
+import 'data/streams/mark_price_stream.dart';
+import 'data/streams/ticker_stream.dart';
+import 'data/streams/user_data_stream.dart';
 import 'domain/auto_trader.dart';
 import 'domain/scanner.dart';
 import 'domain/strategy.dart';
@@ -13,16 +19,8 @@ final credentialsStoreProvider = Provider<SecureCredentialStore>((ref) {
   return SecureCredentialStore.instance;
 });
 
-/// Reflects the current credentials snapshot synchronously. The Notifier's
-/// `build` returns whatever the store has loaded so far (eagerly populated in
-/// `main()` before `runApp`), and we subscribe to the store's ValueNotifier so
-/// later saves / clears propagate to all watchers.
-///
-/// Earlier this was a StreamProvider with a broadcast StreamController, which
-/// dropped the initial emission whenever there was no listener at emit time
-/// — so every cold start reported `null` and the router sent the user to
-/// /setup even when keys were saved. Hence the "I have to re-enter keys every
-/// launch" bug.
+/// Reflects the current credentials snapshot synchronously. Subscribes to the
+/// store's ValueNotifier so later saves / clears propagate to all watchers.
 final credentialsProvider =
     NotifierProvider<CredentialsNotifier, BinanceCredentials?>(CredentialsNotifier.new);
 
@@ -31,7 +29,6 @@ class CredentialsNotifier extends Notifier<BinanceCredentials?> {
   BinanceCredentials? build() {
     final store = ref.watch(credentialsStoreProvider);
     void listener() {
-      // The notifier's value may change on save/clear from anywhere; mirror it.
       state = store.notifier.value;
     }
     store.notifier.addListener(listener);
@@ -45,8 +42,40 @@ final binanceApiProvider = Provider<BinanceApi>((ref) {
   return BinanceApi(store);
 });
 
-final tradingRepoProvider = Provider<TradingRepository>((ref) {
+final binanceWsProvider = Provider<BinanceWs>((ref) {
+  final ws = BinanceWs(ref.watch(credentialsStoreProvider));
+  ref.onDispose(ws.dispose);
+  return ws;
+});
+
+/// Live broker — talks to Binance via REST.
+final liveTradingRepoProvider = Provider<TradingRepository>((ref) {
   return TradingRepository(ref.watch(binanceApiProvider));
+});
+
+/// Paper broker — in-memory positions resolved against WebSocket marks.
+/// Wraps the live repo for read-only public data (symbol rules, mark price
+/// fallback) so paper-mode setup matches what live would do.
+final paperTradingRepoProvider = Provider<PaperTradingRepository>((ref) {
+  final repo = PaperTradingRepository(
+    live: ref.watch(liveTradingRepoProvider),
+    ws: ref.watch(binanceWsProvider),
+    settings: ref.watch(settingsRepoProvider),
+  );
+  ref.onDispose(repo.dispose);
+  return repo;
+});
+
+/// Mode-aware broker selected by the user's `tradingMode` setting. Every
+/// consumer (TradeScreen, AutoTrader, PositionsScreen, JournalController,
+/// auto-trade engine) depends on this so flipping the mode in Settings
+/// transparently re-routes every order placement.
+final tradingRepoProvider = Provider<Broker>((ref) {
+  final mode = ref.watch(settingsProvider).valueOrNull?.tradingMode ??
+      TradingMode.live;
+  return mode == TradingMode.paper
+      ? ref.watch(paperTradingRepoProvider)
+      : ref.watch(liveTradingRepoProvider);
 });
 
 final strategyProvider = Provider<ApexConfluenceStrategy>((ref) {
@@ -88,3 +117,31 @@ class SettingsNotifier extends AsyncNotifier<AppSettings> {
     await ref.read(settingsRepoProvider).save(next);
   }
 }
+
+// ---------------- WebSocket stream providers ----------------
+
+/// Per-symbol live mark price + funding rate. The provider auto-disposes
+/// the underlying subscription when no widget is listening.
+final markPriceStreamProvider =
+    StreamProvider.family<MarkPriceTick, String>((ref, symbol) {
+  return markPriceStream(ref.watch(binanceWsProvider), symbol);
+});
+
+/// Single shared 24h-ticker stream. UI typically listens with `.select()`
+/// to extract one symbol's last price.
+final allTickersStreamProvider = StreamProvider<TickerTick>((ref) {
+  return allTickersStream(ref.watch(binanceWsProvider));
+});
+
+/// User-data stream — account / order updates pushed by Binance instead of
+/// polled. The provider holds the controller so the WS connection survives
+/// across screen navigation; it's torn down only when no listener remains.
+final userDataStreamProvider =
+    Provider<UserDataStream>((ref) {
+  final stream = UserDataStream(
+    ref.watch(binanceApiProvider),
+    ref.watch(binanceWsProvider),
+  );
+  ref.onDispose(stream.dispose);
+  return stream;
+});

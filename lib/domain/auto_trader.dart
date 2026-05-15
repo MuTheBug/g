@@ -3,9 +3,9 @@ import 'package:flutter/foundation.dart';
 
 import '../data/api/binance_api.dart';
 import '../data/models/journal_entry.dart';
+import '../data/repositories/broker.dart';
 import '../data/repositories/journal_repository.dart';
 import '../data/repositories/settings_repository.dart';
-import '../data/repositories/trading_repository.dart';
 import 'strategy.dart';
 
 class AutoTradeReport {
@@ -31,7 +31,7 @@ class AutoTradeReport {
 /// `autoAttachSlTp` setting on.
 class AutoTrader {
   AutoTrader(this._trading, this._journal);
-  final TradingRepository _trading;
+  final Broker _trading;
   final JournalRepository _journal;
 
   Future<AutoTradeReport> processSignals(
@@ -132,6 +132,7 @@ class AutoTrader {
           takeProfit3: sig.plan.takeProfit3,
           confidence: sig.confidence,
           autoTraded: true,
+          paper: settings.tradingMode == TradingMode.paper,
         ));
       } catch (e) {
         warnings.add('${sig.symbol} order failed: ${_pretty(e)}');

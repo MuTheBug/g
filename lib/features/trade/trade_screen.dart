@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme.dart';
 import '../../data/models/journal_entry.dart';
 import '../../data/models/symbol_rules.dart';
+import '../../data/repositories/settings_repository.dart';
 import '../../domain/strategy.dart';
 import '../../providers.dart';
 import '../../widgets/common.dart';
@@ -192,6 +193,7 @@ class _TradeScreenState extends ConsumerState<TradeScreen> {
       // Record in the journal so the user can review wins / losses later.
       try {
         final filledPx = r.entry.avgPrice == 0 ? r.entry.price : r.entry.avgPrice;
+        final settings = await ref.read(settingsRepoProvider).load();
         await ref.read(journalRepoProvider).add(JournalEntry(
               id: 'manual-${DateTime.now().microsecondsSinceEpoch}-${widget.symbol}',
               symbol: widget.symbol,
@@ -207,6 +209,7 @@ class _TradeScreenState extends ConsumerState<TradeScreen> {
               takeProfit3: _effectiveTp3,
               confidence: _signal?.confidence ?? 0,
               autoTraded: false,
+              paper: settings.tradingMode == TradingMode.paper,
             ));
       } catch (_) {/* journal is best-effort */}
       setState(() {

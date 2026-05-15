@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import 'core/theme.dart';
 import 'features/about/about_screen.dart';
+import 'features/backtest/backtest_screen.dart';
 import 'features/biometric/biometric_gate.dart';
 import 'features/diagnostics/test_orders_screen.dart';
 import 'features/journal/journal_screen.dart';
@@ -95,6 +96,7 @@ class _ApexAppState extends ConsumerState<ApexApp> {
             onPositionsTap: () => ctx.push('/positions'),
             onSettingsTap: () => ctx.push('/settings'),
             onJournalTap: () => ctx.push('/journal'),
+            onBacktestTap: () => ctx.push('/backtest'),
           ),
         ),
         GoRoute(
@@ -150,6 +152,10 @@ class _ApexAppState extends ConsumerState<ApexApp> {
         GoRoute(
           path: '/test-orders',
           builder: (_, __) => const TestOrdersScreen(),
+        ),
+        GoRoute(
+          path: '/backtest',
+          builder: (_, __) => const BacktestScreen(),
         ),
       ],
     );

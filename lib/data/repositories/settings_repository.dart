@@ -1,5 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
+enum TradingMode { live, paper }
+
 class AppSettings {
   const AppSettings({
     this.scanLimit = 30,
@@ -19,6 +21,8 @@ class AppSettings {
     this.autoTradeMaxOpenPositions = 3,
     this.autoTradeMarginUsdt = 10,
     this.autoTradeMinConfidence = 80,
+    this.tradingMode = TradingMode.live,
+    this.paperStartingBalance = 10000,
   });
 
   final int scanLimit;
@@ -41,6 +45,10 @@ class AppSettings {
   final double autoTradeMarginUsdt;
   final int autoTradeMinConfidence;
 
+  // Mode + paper account
+  final TradingMode tradingMode;
+  final double paperStartingBalance;
+
   AppSettings copyWith({
     int? scanLimit,
     int? minConfidence,
@@ -59,6 +67,8 @@ class AppSettings {
     int? autoTradeMaxOpenPositions,
     double? autoTradeMarginUsdt,
     int? autoTradeMinConfidence,
+    TradingMode? tradingMode,
+    double? paperStartingBalance,
   }) =>
       AppSettings(
         scanLimit: scanLimit ?? this.scanLimit,
@@ -78,6 +88,8 @@ class AppSettings {
         autoTradeMaxOpenPositions: autoTradeMaxOpenPositions ?? this.autoTradeMaxOpenPositions,
         autoTradeMarginUsdt: autoTradeMarginUsdt ?? this.autoTradeMarginUsdt,
         autoTradeMinConfidence: autoTradeMinConfidence ?? this.autoTradeMinConfidence,
+        tradingMode: tradingMode ?? this.tradingMode,
+        paperStartingBalance: paperStartingBalance ?? this.paperStartingBalance,
       );
 }
 
@@ -102,6 +114,8 @@ class SettingsRepository {
   static const _kAtMax = 'autoTradeMaxOpenPositions';
   static const _kAtMargin = 'autoTradeMarginUsdt';
   static const _kAtMinConf = 'autoTradeMinConfidence';
+  static const _kTradingMode = 'tradingMode';
+  static const _kPaperBal = 'paperStartingBalance';
 
   Future<SharedPreferences> get _prefs async => SharedPreferences.getInstance();
 
@@ -126,6 +140,10 @@ class SettingsRepository {
         autoTradeMaxOpenPositions: p.getInt(_kAtMax) ?? 3,
         autoTradeMarginUsdt: p.getDouble(_kAtMargin) ?? 10,
         autoTradeMinConfidence: p.getInt(_kAtMinConf) ?? 80,
+        tradingMode: (p.getString(_kTradingMode) ?? 'live') == 'paper'
+            ? TradingMode.paper
+            : TradingMode.live,
+        paperStartingBalance: p.getDouble(_kPaperBal) ?? 10000,
       );
     } catch (_) {
       return const AppSettings();
@@ -153,6 +171,8 @@ class SettingsRepository {
         p.setInt(_kAtMax, s.autoTradeMaxOpenPositions),
         p.setDouble(_kAtMargin, s.autoTradeMarginUsdt),
         p.setInt(_kAtMinConf, s.autoTradeMinConfidence),
+        p.setString(_kTradingMode, s.tradingMode == TradingMode.paper ? 'paper' : 'live'),
+        p.setDouble(_kPaperBal, s.paperStartingBalance),
       ]);
     } catch (_) {/* tolerate disk failure */}
   }
