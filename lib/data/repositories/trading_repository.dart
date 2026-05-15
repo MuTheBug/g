@@ -19,6 +19,26 @@ class TradingRepository {
   int _rulesAt = 0;
   static const _ttlMs = 60 * 60 * 1000;
 
+  // Position-side mode cache. We probe once per session — it changes only
+  // when the user explicitly toggles it in the Binance UI, so a single
+  // lookup per app lifetime is more than enough.
+  bool? _hedgeMode;
+  Future<bool> _isHedgeMode() async {
+    final cached = _hedgeMode;
+    if (cached != null) return cached;
+    try {
+      final r = await _api.isHedgeMode();
+      _hedgeMode = r;
+      return r;
+    } catch (_) {
+      // If the lookup fails for some reason, assume one-way mode (the
+      // default). The bracket fallback ladder will still recover by trying
+      // the hedge-mode shape after this one.
+      _hedgeMode = false;
+      return false;
+    }
+  }
+
   Future<SymbolRules?> getSymbolRules(String symbol) async {
     final now = DateTime.now().millisecondsSinceEpoch;
     if (_rulesCache == null || now - _rulesAt > _ttlMs) {
@@ -206,100 +226,108 @@ class TradingRepository {
     required String tag,
     required List<String> warnings,
   }) async {
-    // Binance returns -4120 ("Order type not supported for this endpoint,
-    // please use the algo order API endpoints instead") for several different
-    // param combinations depending on the user's account type, hedge mode,
-    // and the specific symbol's order-routing config. Rather than guess
-    // which one is right, we try the most-permissive variants in order and
-    // stop at the first one that succeeds. The error from the FINAL variant
-    // is what we surface to the user.
-    final variants = <Future<void> Function()>[
-      // V1: standard reduceOnly + quantity, no workingType (defaults to
-      //     CONTRACT_PRICE). This is the simplest valid shape and works on
-      //     the widest set of symbols.
-      () => _api.newOrder(
-            symbol: symbol,
-            side: closeSide,
-            type: type,
-            quantity: quantityFormatted,
-            stopPrice: stopPriceFormatted,
-            reduceOnly: true,
-            newClientOrderId: _coid('${tag}A'),
-          ),
-      // V2: same shape but with MARK_PRICE workingType — Binance's
-      //     recommended trigger source for stop orders, supported on most
-      //     liquid pairs.
-      () => _api.newOrder(
-            symbol: symbol,
-            side: closeSide,
-            type: type,
-            quantity: quantityFormatted,
-            stopPrice: stopPriceFormatted,
-            reduceOnly: true,
-            workingType: 'MARK_PRICE',
-            newClientOrderId: _coid('${tag}B'),
-          ),
-      // V3: closePosition: true. This is what the Binance docs *prefer* for
-      //     position-closing stop orders, but on some account types it gets
-      //     routed through the algo endpoint and bounces with -4120. So we
-      //     try it AFTER the reduceOnly variants.
-      () => _api.newOrder(
-            symbol: symbol,
-            side: closeSide,
-            type: type,
-            stopPrice: stopPriceFormatted,
-            closePosition: true,
-            newClientOrderId: _coid('${tag}C'),
-          ),
-      // V4: closePosition + MARK_PRICE.
-      () => _api.newOrder(
-            symbol: symbol,
-            side: closeSide,
-            type: type,
-            stopPrice: stopPriceFormatted,
-            closePosition: true,
-            workingType: 'MARK_PRICE',
-            newClientOrderId: _coid('${tag}D'),
-          ),
-      // V5: hedge-mode shape — positionSide explicit, plus reduceOnly. Some
-      //     accounts have hedge mode enabled and reject orders that don't
-      //     specify the position side.
-      () => _api.newOrder(
-            symbol: symbol,
-            side: closeSide,
-            type: type,
-            quantity: quantityFormatted,
-            stopPrice: stopPriceFormatted,
-            reduceOnly: true,
-            positionSide: closeSide == 'SELL' ? 'LONG' : 'SHORT',
-            newClientOrderId: _coid('${tag}E'),
-          ),
+    // The two bracket shapes are mutually exclusive:
+    //
+    //   - HEDGE MODE  (dualSidePosition = true): the account holds separate
+    //     LONG and SHORT positions per symbol. To close one of them you must
+    //     pass `positionSide=LONG|SHORT`; sending `reduceOnly` returns
+    //     -1106 "reduceOnly sent when not required".
+    //
+    //   - ONE-WAY MODE (dualSidePosition = false): there's a single BOTH
+    //     position per symbol. You must send `reduceOnly=true` (or
+    //     `closePosition=true`); sending `positionSide` returns -4061
+    //     "Position side does not match user setting".
+    //
+    // We detect which mode the user is in once, cache the result, and pick
+    // the right shape first. The opposite-mode shape is kept as a fallback in
+    // case the lookup itself failed.
+    final hedge = await _isHedgeMode();
+    final positionSide = closeSide == 'SELL' ? 'LONG' : 'SHORT';
+
+    final variants = <_BracketVariant>[
+      if (hedge) ...[
+        _BracketVariant('A', () => _api.newOrder(
+              symbol: symbol, side: closeSide, type: type,
+              quantity: quantityFormatted, stopPrice: stopPriceFormatted,
+              positionSide: positionSide,
+              newClientOrderId: _coid('${tag}A'),
+            )),
+        _BracketVariant('B', () => _api.newOrder(
+              symbol: symbol, side: closeSide, type: type,
+              quantity: quantityFormatted, stopPrice: stopPriceFormatted,
+              positionSide: positionSide, workingType: 'MARK_PRICE',
+              newClientOrderId: _coid('${tag}B'),
+            )),
+        _BracketVariant('C', () => _api.newOrder(
+              symbol: symbol, side: closeSide, type: type,
+              stopPrice: stopPriceFormatted,
+              positionSide: positionSide, closePosition: true,
+              newClientOrderId: _coid('${tag}C'),
+            )),
+      ] else ...[
+        _BracketVariant('A', () => _api.newOrder(
+              symbol: symbol, side: closeSide, type: type,
+              quantity: quantityFormatted, stopPrice: stopPriceFormatted,
+              reduceOnly: true,
+              newClientOrderId: _coid('${tag}A'),
+            )),
+        _BracketVariant('B', () => _api.newOrder(
+              symbol: symbol, side: closeSide, type: type,
+              quantity: quantityFormatted, stopPrice: stopPriceFormatted,
+              reduceOnly: true, workingType: 'MARK_PRICE',
+              newClientOrderId: _coid('${tag}B'),
+            )),
+        _BracketVariant('C', () => _api.newOrder(
+              symbol: symbol, side: closeSide, type: type,
+              stopPrice: stopPriceFormatted, closePosition: true,
+              newClientOrderId: _coid('${tag}C'),
+            )),
+      ],
+      // Crossover: the *other* mode's preferred shape, in case our cached
+      // mode flag was stale or the probe call failed.
+      if (hedge)
+        _BracketVariant('Z', () => _api.newOrder(
+              symbol: symbol, side: closeSide, type: type,
+              quantity: quantityFormatted, stopPrice: stopPriceFormatted,
+              reduceOnly: true,
+              newClientOrderId: _coid('${tag}Z'),
+            ))
+      else
+        _BracketVariant('Z', () => _api.newOrder(
+              symbol: symbol, side: closeSide, type: type,
+              quantity: quantityFormatted, stopPrice: stopPriceFormatted,
+              positionSide: positionSide,
+              newClientOrderId: _coid('${tag}Z'),
+            )),
     ];
 
     Object? lastError;
-    for (var i = 0; i < variants.length; i++) {
+    for (final v in variants) {
       try {
-        await variants[i]();
-        return; // success
+        await v.run();
+        return;
       } catch (e) {
         lastError = e;
-        if (_shouldFallback(e)) continue;
-        // For non-routing errors (e.g. -2021 "would immediately trigger",
-        // -4014 "tick size", etc.) there's no point trying more variants —
-        // they'll all hit the same validation failure.
+        final code = _binanceCode(e);
+        // -1106: parameter sent when not required  (wrong mode)
+        // -4061: position side does not match user setting
+        // -4120: order type not supported for this endpoint
+        final routing = code == -1106 || code == -4061 || code == -4120;
+        if (routing) {
+          // If the first variant tells us we guessed the mode wrong, flip
+          // the cached value so subsequent brackets in this same call (and
+          // any future calls in this app session) go through the right
+          // shape immediately.
+          if (code == -1106 || code == -4061) {
+            _hedgeMode = !(_hedgeMode ?? false);
+          }
+          continue;
+        }
         warnings.add('$tag attach failed: ${_pretty(e)}');
         return;
       }
     }
     warnings.add('$tag attach failed (all variants): ${_pretty(lastError ?? "unknown")}');
-  }
-
-  /// Returns true if the error is one where retrying with a different param
-  /// combination might succeed. We retry on -4120 (order type not supported
-  /// for this endpoint) and -1106 (mandatory parameter wrong shape).
-  bool _shouldFallback(Object e) {
-    final code = _binanceCode(e);
-    return code == -4120 || code == -1106;
   }
 
   int? _binanceCode(Object e) {
@@ -335,12 +363,6 @@ class TradingRepository {
     required double stop,
   }) {
     if (mark <= 0 || stop <= 0) return null;
-    // For LONG: closeSide = SELL.
-    //   SL (STOP_MARKET) must trigger when price falls → stop < mark.
-    //   TP (TAKE_PROFIT_MARKET) must trigger when price rises → stop > mark.
-    // For SHORT: closeSide = BUY.
-    //   SL must trigger when price rises → stop > mark.
-    //   TP must trigger when price falls → stop < mark.
     if (side == SignalSide.long) {
       if (kind == _BracketKind.sl && !(stop < mark)) {
         return 'SL ($stop) must be below mark ($mark) for LONG — would trigger immediately';
@@ -365,13 +387,15 @@ class TradingRepository {
     required double quantity,
     required SymbolRules rules,
   }) async {
+    final hedge = await _isHedgeMode();
     final closeSide = side == SignalSide.long ? 'SELL' : 'BUY';
     return _api.newOrder(
       symbol: symbol,
       side: closeSide,
       type: 'MARKET',
       quantity: rules.formatQuantity(quantity.abs()),
-      reduceOnly: true,
+      reduceOnly: hedge ? null : true,
+      positionSide: hedge ? (side == SignalSide.long ? 'LONG' : 'SHORT') : null,
       newClientOrderId: _coid('CLOSE'),
     );
   }
@@ -382,6 +406,12 @@ class TradingRepository {
     final id = 'APEX-$tag-${DateTime.now().millisecondsSinceEpoch}';
     return id.length > 36 ? id.substring(0, 36) : id;
   }
+}
+
+class _BracketVariant {
+  _BracketVariant(this.tag, this.run);
+  final String tag;
+  final Future<void> Function() run;
 }
 
 enum _BracketKind { sl, tp }

@@ -107,6 +107,22 @@ class BinanceApi {
     return double.tryParse(v.toString()) ?? 0;
   }
 
+  /// Position mode: true = hedge mode (dual position side, LONG and SHORT can
+  /// coexist), false = one-way mode (single BOTH position per symbol).
+  /// This determines whether bracket orders need `positionSide=LONG/SHORT` or
+  /// `reduceOnly=true`. The two parameter sets are mutually exclusive — sending
+  /// reduceOnly in hedge mode returns -1106 "reduceOnly sent when not required".
+  Future<bool> isHedgeMode() async {
+    final r = await _dio.get<Map<String, dynamic>>(
+      '$_base/fapi/v1/positionSide/dual',
+      options: Options(extra: {'signed': true}),
+    );
+    final v = r.data?['dualSidePosition'];
+    if (v is bool) return v;
+    if (v is String) return v.toLowerCase() == 'true';
+    return false;
+  }
+
   // --------- Account / Trade (signed) ---------
 
   Future<Account> getAccount() async {
