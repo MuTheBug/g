@@ -316,8 +316,64 @@ class TradingRepository {
               newClientOrderId: _coid('${tag}C'),
             )),
       ],
-      // Crossover: the *other* mode's preferred shape, in case our cached
-      // mode flag was stale or the probe call failed.
+      // Algo conditional endpoint (POST /fapi/v1/algoOrder). Binance's
+      // -4120 error explicitly tells us to use this when the standard
+      // endpoint rejects STOP_MARKET / TAKE_PROFIT_MARKET. Same shapes as
+      // above but: algoType=CONDITIONAL is implicit, and the trigger field
+      // is named `triggerPrice` instead of `stopPrice`.
+      if (hedge) ...[
+        _BracketVariant('algoA', () async {
+          await _api.newAlgoConditional(
+            symbol: symbol, side: closeSide, type: type,
+            quantity: quantityFormatted, triggerPrice: stopPriceFormatted,
+            positionSide: positionSide,
+            clientAlgoId: _coid('${tag}aA'),
+          );
+        }),
+        _BracketVariant('algoB', () async {
+          await _api.newAlgoConditional(
+            symbol: symbol, side: closeSide, type: type,
+            quantity: quantityFormatted, triggerPrice: stopPriceFormatted,
+            positionSide: positionSide, workingType: 'MARK_PRICE',
+            clientAlgoId: _coid('${tag}aB'),
+          );
+        }),
+        _BracketVariant('algoC', () async {
+          await _api.newAlgoConditional(
+            symbol: symbol, side: closeSide, type: type,
+            triggerPrice: stopPriceFormatted,
+            positionSide: positionSide, closePosition: true,
+            clientAlgoId: _coid('${tag}aC'),
+          );
+        }),
+      ] else ...[
+        _BracketVariant('algoA', () async {
+          await _api.newAlgoConditional(
+            symbol: symbol, side: closeSide, type: type,
+            quantity: quantityFormatted, triggerPrice: stopPriceFormatted,
+            reduceOnly: true,
+            clientAlgoId: _coid('${tag}aA'),
+          );
+        }),
+        _BracketVariant('algoB', () async {
+          await _api.newAlgoConditional(
+            symbol: symbol, side: closeSide, type: type,
+            quantity: quantityFormatted, triggerPrice: stopPriceFormatted,
+            reduceOnly: true, workingType: 'MARK_PRICE',
+            clientAlgoId: _coid('${tag}aB'),
+          );
+        }),
+        _BracketVariant('algoC', () async {
+          await _api.newAlgoConditional(
+            symbol: symbol, side: closeSide, type: type,
+            triggerPrice: stopPriceFormatted, closePosition: true,
+            clientAlgoId: _coid('${tag}aC'),
+          );
+        }),
+      ],
+      // Final crossover: the *other* mode's preferred standard-endpoint
+      // shape, in case our cached mode flag was stale or the probe call
+      // failed.
       if (hedge)
         _BracketVariant('Z', () => _api.newOrder(
               symbol: symbol, side: closeSide, type: type,
@@ -598,8 +654,100 @@ class TradingRepository {
           ),
         ));
       }
+
+      // ---- Algo conditional endpoint (POST /fapi/v1/algoOrder) ----
+      // No /test variant exists for this endpoint, so we actually place
+      // the order, then immediately cancel it. Even when the standard
+      // endpoint returns -4120, the algo endpoint should succeed.
+      if (hedge) {
+        results.add(await _runAlgoPlaceAndCancel(
+          label: '$tag (algoA) — positionSide+qty',
+          params: {
+            'endpoint': '/fapi/v1/algoOrder', 'algoType': 'CONDITIONAL',
+            'side': closeSide, 'type': type, 'quantity': qtyStr,
+            'triggerPrice': stopStr, 'positionSide': positionSide,
+          },
+          call: () => _api.newAlgoConditional(
+            symbol: symbol, side: closeSide, type: type, quantity: qtyStr,
+            triggerPrice: stopStr, positionSide: positionSide,
+            clientAlgoId: _coid('TEST-${tag}aA'),
+          ),
+        ));
+        results.add(await _runAlgoPlaceAndCancel(
+          label: '$tag (algoC) — positionSide+closePosition',
+          params: {
+            'endpoint': '/fapi/v1/algoOrder', 'algoType': 'CONDITIONAL',
+            'side': closeSide, 'type': type,
+            'triggerPrice': stopStr, 'positionSide': positionSide,
+            'closePosition': true,
+          },
+          call: () => _api.newAlgoConditional(
+            symbol: symbol, side: closeSide, type: type,
+            triggerPrice: stopStr, positionSide: positionSide, closePosition: true,
+            clientAlgoId: _coid('TEST-${tag}aC'),
+          ),
+        ));
+      } else {
+        results.add(await _runAlgoPlaceAndCancel(
+          label: '$tag (algoA) — reduceOnly+qty',
+          params: {
+            'endpoint': '/fapi/v1/algoOrder', 'algoType': 'CONDITIONAL',
+            'side': closeSide, 'type': type, 'quantity': qtyStr,
+            'triggerPrice': stopStr, 'reduceOnly': true,
+          },
+          call: () => _api.newAlgoConditional(
+            symbol: symbol, side: closeSide, type: type, quantity: qtyStr,
+            triggerPrice: stopStr, reduceOnly: true,
+            clientAlgoId: _coid('TEST-${tag}aA'),
+          ),
+        ));
+        results.add(await _runAlgoPlaceAndCancel(
+          label: '$tag (algoC) — closePosition',
+          params: {
+            'endpoint': '/fapi/v1/algoOrder', 'algoType': 'CONDITIONAL',
+            'side': closeSide, 'type': type, 'triggerPrice': stopStr,
+            'closePosition': true,
+          },
+          call: () => _api.newAlgoConditional(
+            symbol: symbol, side: closeSide, type: type,
+            triggerPrice: stopStr, closePosition: true,
+            clientAlgoId: _coid('TEST-${tag}aC'),
+          ),
+        ));
+      }
     }
     return OrderTestReport(symbol: symbol, hedgeMode: hedge, markPrice: mark, results: results);
+  }
+
+  /// Place + cancel a conditional algo order so we can validate the shape
+  /// works for the user's account without leaving an active order behind.
+  /// The cancel is best-effort; on cancel failure we still report success
+  /// (the user can clean it up from the open-orders screen).
+  Future<OrderTestResult> _runAlgoPlaceAndCancel({
+    required String label,
+    required Map<String, dynamic> params,
+    required Future<Map<String, dynamic>> Function() call,
+  }) async {
+    try {
+      final placed = await call();
+      // Best-effort cleanup so the test doesn't leave a live conditional.
+      final algoId = placed['algoId'];
+      if (algoId is num) {
+        try {
+          await _api.cancelAlgoOrder(algoId.toInt());
+        } catch (_) {/* surface the success anyway */}
+      }
+      return OrderTestResult(label: label, params: params, passed: true);
+    } catch (e) {
+      final code = _binanceCode(e);
+      return OrderTestResult(
+        label: label,
+        params: params,
+        passed: false,
+        errorCode: code,
+        errorMessage: _pretty(e),
+      );
+    }
   }
 
   Future<OrderTestResult> _runOne({

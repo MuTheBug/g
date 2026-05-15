@@ -186,6 +186,8 @@ class BinanceApi {
     bool? priceProtect,
     String? newClientOrderId,
     String? positionSide,
+    String? callbackRate,
+    String? activationPrice,
   }) async {
     final r = await _dio.post<Map<String, dynamic>>(
       '$_base/fapi/v1/order',
@@ -194,6 +196,7 @@ class BinanceApi {
         stopPrice: stopPrice, timeInForce: timeInForce, reduceOnly: reduceOnly,
         closePosition: closePosition, workingType: workingType, priceProtect: priceProtect,
         newClientOrderId: newClientOrderId, positionSide: positionSide,
+        callbackRate: callbackRate, activationPrice: activationPrice,
       ),
       options: Options(extra: {'signed': true}),
     );
@@ -219,6 +222,8 @@ class BinanceApi {
     bool? priceProtect,
     String? newClientOrderId,
     String? positionSide,
+    String? callbackRate,
+    String? activationPrice,
   }) async {
     await _dio.post<dynamic>(
       '$_base/fapi/v1/order/test',
@@ -227,7 +232,75 @@ class BinanceApi {
         stopPrice: stopPrice, timeInForce: timeInForce, reduceOnly: reduceOnly,
         closePosition: closePosition, workingType: workingType, priceProtect: priceProtect,
         newClientOrderId: newClientOrderId, positionSide: positionSide,
+        callbackRate: callbackRate, activationPrice: activationPrice,
       ),
+      options: Options(extra: {'signed': true}),
+    );
+  }
+
+  /// Places a conditional algo order via `POST /fapi/v1/algoOrder`.
+  ///
+  /// This is the endpoint Binance points users to when /fapi/v1/order rejects
+  /// stop / take-profit orders with -4120 "Order type not supported for this
+  /// endpoint. Please use the Algo Order API endpoints instead." It takes the
+  /// same logical params as the standard order endpoint with two important
+  /// differences:
+  ///   1. `algoType` is required and must be "CONDITIONAL".
+  ///   2. The trigger price field is named `triggerPrice` (not `stopPrice`).
+  ///
+  /// Supported [type] values are STOP_MARKET, TAKE_PROFIT_MARKET, STOP,
+  /// TAKE_PROFIT, TRAILING_STOP_MARKET. Hedge mode requires `positionSide`.
+  /// One-way mode optionally uses `reduceOnly` or `closePosition`.
+  Future<Map<String, dynamic>> newAlgoConditional({
+    required String symbol,
+    required String side,
+    required String type,
+    String? quantity,
+    String? price,
+    String? triggerPrice,
+    String? timeInForce,
+    bool? reduceOnly,
+    bool? closePosition,
+    String? workingType,
+    bool? priceProtect,
+    String? positionSide,
+    String? callbackRate,
+    String? activationPrice,
+    String? clientAlgoId,
+  }) async {
+    final params = <String, dynamic>{
+      'algoType': 'CONDITIONAL',
+      'symbol': symbol,
+      'side': side,
+      'type': type,
+      if (quantity != null) 'quantity': quantity,
+      if (price != null) 'price': price,
+      if (triggerPrice != null) 'triggerPrice': triggerPrice,
+      if (timeInForce != null) 'timeInForce': timeInForce,
+      if (reduceOnly != null) 'reduceOnly': reduceOnly,
+      if (closePosition != null) 'closePosition': closePosition,
+      if (workingType != null) 'workingType': workingType,
+      if (priceProtect != null) 'priceProtect': priceProtect,
+      if (positionSide != null) 'positionSide': positionSide,
+      if (callbackRate != null) 'callbackRate': callbackRate,
+      if (activationPrice != null) 'activatePrice': activationPrice,
+      if (clientAlgoId != null) 'clientAlgoId': clientAlgoId,
+    };
+    final r = await _dio.post<Map<String, dynamic>>(
+      '$_base/fapi/v1/algoOrder',
+      queryParameters: params,
+      options: Options(extra: {'signed': true}),
+    );
+    return r.data ?? const {};
+  }
+
+  /// Cancels a single algo order placed via [newAlgoConditional]. Used by the
+  /// "Test orders" screen to clean up the validation orders it places (the
+  /// algo endpoint has no /test variant, so we have to place + cancel).
+  Future<void> cancelAlgoOrder(int algoId) async {
+    await _dio.delete<Map<String, dynamic>>(
+      '$_base/fapi/v1/algoOrder',
+      queryParameters: {'algoId': algoId},
       options: Options(extra: {'signed': true}),
     );
   }
@@ -246,6 +319,8 @@ class BinanceApi {
     bool? priceProtect,
     String? newClientOrderId,
     String? positionSide,
+    String? callbackRate,
+    String? activationPrice,
   }) {
     return <String, dynamic>{
       'symbol': symbol,
@@ -261,6 +336,8 @@ class BinanceApi {
       if (priceProtect != null) 'priceProtect': priceProtect,
       if (newClientOrderId != null) 'newClientOrderId': newClientOrderId,
       if (positionSide != null) 'positionSide': positionSide,
+      if (callbackRate != null) 'callbackRate': callbackRate,
+      if (activationPrice != null) 'activationPrice': activationPrice,
     };
   }
 
