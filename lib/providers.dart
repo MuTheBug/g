@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'data/api/binance_api.dart';
 import 'data/local/secure_credential_store.dart';
 import 'data/repositories/settings_repository.dart';
+import 'data/repositories/journal_repository.dart';
 import 'data/repositories/trading_repository.dart';
 import 'domain/auto_trader.dart';
 import 'domain/scanner.dart';
@@ -56,8 +57,15 @@ final scannerProvider = Provider<MarketScanner>((ref) {
   return MarketScanner(ref.watch(binanceApiProvider), ref.watch(strategyProvider));
 });
 
+final journalRepoProvider = Provider<JournalRepository>((ref) {
+  return JournalRepository.instance;
+});
+
 final autoTraderProvider = Provider<AutoTrader>((ref) {
-  return AutoTrader(ref.watch(tradingRepoProvider));
+  return AutoTrader(
+    ref.watch(tradingRepoProvider),
+    ref.watch(journalRepoProvider),
+  );
 });
 
 final settingsRepoProvider = Provider<SettingsRepository>((ref) {

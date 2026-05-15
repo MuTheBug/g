@@ -86,23 +86,31 @@ class TradingRepository {
       newClientOrderId: _coid('ENTRY'),
     );
 
+    // The quantity actually filled is what we close against. For MARKET orders
+    // executedQty is populated; fall back to the requested quantity if not.
+    final filledQty = entry.executedQty > 0 ? entry.executedQty : quantity;
+
     // 2) Fetch a fresh mark price so we can validate bracket direction.
     double mark = 0;
     try {
       mark = await _api.getMarkPrice(symbol);
-    } catch (_) {
-      // If mark fetch fails, skip validation but still try to place brackets.
-    }
+    } catch (_) {/* skip validation if mark fetch fails */}
 
-    // 3) Stop-loss.
+    // Each bracket is placed as a `reduceOnly` order with an explicit quantity
+    // instead of the older `closePosition: true` shape. Binance now routes
+    // closePosition-based stop orders through their algo-order endpoint on
+    // some accounts and returns -4120 from the standard /fapi/v1/order. The
+    // reduceOnly+quantity shape works on every account type and has the same
+    // practical effect — when the first of {SL, TP1, TP2, TP3} fills, the
+    // remaining orders become no-ops because there's nothing left to reduce.
+    final qtyStr = rules.formatQuantity(filledQty);
+
+    // 3) Stop-loss (full position).
     if (stopPrice != null && stopPrice > 0) {
       final rounded = rules.formatPrice(stopPrice);
       final stop = double.tryParse(rounded) ?? stopPrice;
       final validationError = _validateBracket(
-        side: side,
-        kind: _BracketKind.sl,
-        mark: mark,
-        stop: stop,
+        side: side, kind: _BracketKind.sl, mark: mark, stop: stop,
       );
       if (validationError != null) {
         warnings.add(validationError);
@@ -112,39 +120,81 @@ class TradingRepository {
           closeSide: closeSide,
           type: 'STOP_MARKET',
           stopPriceFormatted: rounded,
+          quantityFormatted: qtyStr,
           tag: 'SL',
           warnings: warnings,
         );
       }
     }
 
-    // 4) Take profits.
+    // 4) Take-profits. Split the position so multiple TPs can fire
+    //    incrementally — TP1 33%, TP2 33%, TP3 34% (or as close as the symbol's
+    //    stepSize permits). If a portion falls below the symbol's minNotional
+    //    we collapse to a single TP with the full filled quantity.
+    final tpQuantities = _splitForTakeProfits(
+      filledQty: filledQty,
+      numTps: takeProfits.where((t) => t > 0).length,
+      entryPrice: stopPrice != null && stopPrice > 0 ? entry.avgPrice : 0,
+      rules: rules,
+    );
+    var tpIndex = 0;
     for (var i = 0; i < takeProfits.length; i++) {
       final tp = takeProfits[i];
       if (tp <= 0) continue;
       final rounded = rules.formatPrice(tp);
       final stop = double.tryParse(rounded) ?? tp;
       final validationError = _validateBracket(
-        side: side,
-        kind: _BracketKind.tp,
-        mark: mark,
-        stop: stop,
+        side: side, kind: _BracketKind.tp, mark: mark, stop: stop,
       );
       if (validationError != null) {
         warnings.add('TP${i + 1}: $validationError');
+        tpIndex++;
         continue;
       }
+      final portionQty = tpIndex < tpQuantities.length ? tpQuantities[tpIndex] : filledQty;
       await _placeBracket(
         symbol: symbol,
         closeSide: closeSide,
         type: 'TAKE_PROFIT_MARKET',
         stopPriceFormatted: rounded,
+        quantityFormatted: rules.formatQuantity(portionQty),
         tag: 'TP${i + 1}',
         warnings: warnings,
       );
+      tpIndex++;
     }
 
     return BracketResult(entry: entry, warnings: warnings);
+  }
+
+  /// Splits [filledQty] across [numTps] take-profit orders, respecting the
+  /// symbol's [SymbolRules.stepSize] and [SymbolRules.minNotional]. If any
+  /// portion would fall below minNotional we collapse to a single TP that
+  /// closes the whole position.
+  List<double> _splitForTakeProfits({
+    required double filledQty,
+    required int numTps,
+    required double entryPrice,
+    required SymbolRules rules,
+  }) {
+    if (numTps <= 1 || filledQty <= 0) return [filledQty];
+    final per = filledQty / numTps;
+    final rounded = rules.roundQuantity(per);
+    final notionalOk = entryPrice <= 0 || rounded * entryPrice >= rules.minNotional;
+    if (rounded <= 0 || !notionalOk) {
+      // One TP can close the whole position; the others will be silently
+      // dropped (or you can edit the trade screen to use a single TP).
+      return [filledQty];
+    }
+    final result = <double>[];
+    var remaining = filledQty;
+    for (var i = 0; i < numTps - 1; i++) {
+      result.add(rounded);
+      remaining -= rounded;
+    }
+    // Last TP absorbs the rounding remainder so we don't leave dust.
+    result.add(remaining > 0 ? remaining : rounded);
+    return result;
   }
 
   Future<void> _placeBracket({
@@ -152,6 +202,7 @@ class TradingRepository {
     required String closeSide,
     required String type,
     required String stopPriceFormatted,
+    required String quantityFormatted,
     required String tag,
     required List<String> warnings,
   }) async {
@@ -160,8 +211,12 @@ class TradingRepository {
         symbol: symbol,
         side: closeSide,
         type: type,
+        // `reduceOnly: true` + an explicit quantity. NOT `closePosition: true`
+        // — that variant returns -4120 on accounts where Binance routes
+        // closePosition orders through the algo endpoint.
+        quantity: quantityFormatted,
         stopPrice: stopPriceFormatted,
-        closePosition: true,
+        reduceOnly: true,
         workingType: 'MARK_PRICE',
         newClientOrderId: _coid(tag),
       );

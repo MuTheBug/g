@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'core/theme.dart';
 import 'features/about/about_screen.dart';
 import 'features/biometric/biometric_gate.dart';
+import 'features/journal/journal_screen.dart';
 import 'features/positions/positions_screen.dart';
 import 'features/scanner/scanner_screen.dart';
 import 'features/settings/settings_screen.dart';
@@ -12,23 +13,61 @@ import 'features/setup/setup_screen.dart';
 import 'features/signal/signal_detail_screen.dart';
 import 'features/trade/trade_screen.dart';
 import 'providers.dart';
+import 'services/notification_service.dart';
 
-class ApexApp extends ConsumerWidget {
+class ApexApp extends ConsumerStatefulWidget {
   const ApexApp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ApexApp> createState() => _ApexAppState();
+}
+
+class _ApexAppState extends ConsumerState<ApexApp> {
+  late final GoRouter _router;
+
+  @override
+  void initState() {
+    super.initState();
     // Read once for the initial location; later credential changes are handled
     // by individual screens (the Setup screen redirects on save, Settings'
     // disconnect goes back to /setup).
     final creds = ref.read(credentialsProvider);
-    final router = _buildRouter(hasCredsInitially: creds != null);
+    _router = _buildRouter(hasCredsInitially: creds != null);
 
+    // If the app was cold-launched from a notification, navigate to that
+    // symbol's trade screen as soon as the router is alive. If the credentials
+    // aren't there yet (fresh install), drop the payload silently.
+    NotificationService.instance.pendingSymbol.addListener(_handlePendingSymbol);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _handlePendingSymbol());
+  }
+
+  @override
+  void dispose() {
+    NotificationService.instance.pendingSymbol.removeListener(_handlePendingSymbol);
+    super.dispose();
+  }
+
+  void _handlePendingSymbol() {
+    final symbol = NotificationService.instance.pendingSymbol.value;
+    if (symbol == null || symbol.isEmpty) return;
+    final hasCreds = ref.read(credentialsProvider) != null;
+    if (!hasCreds) {
+      NotificationService.instance.consumePendingSymbol();
+      return;
+    }
+    NotificationService.instance.consumePendingSymbol();
+    // Push the trade screen so the user lands directly on order placement;
+    // the back arrow takes them to the scanner.
+    _router.push('/trade/$symbol');
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return MaterialApp.router(
       title: 'Apex Trader',
       debugShowCheckedModeBanner: false,
       theme: buildApexTheme(),
-      routerConfig: router,
+      routerConfig: _router,
       builder: (context, child) {
         return BiometricGate(child: child ?? const SizedBox.shrink());
       },
@@ -54,7 +93,12 @@ class ApexApp extends ConsumerWidget {
             onSignalTap: (symbol) => ctx.push('/signal/$symbol'),
             onPositionsTap: () => ctx.push('/positions'),
             onSettingsTap: () => ctx.push('/settings'),
+            onJournalTap: () => ctx.push('/journal'),
           ),
+        ),
+        GoRoute(
+          path: '/journal',
+          builder: (_, __) => const JournalScreen(),
         ),
         GoRoute(
           path: '/signal/:symbol',

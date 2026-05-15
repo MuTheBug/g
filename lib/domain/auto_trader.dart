@@ -2,6 +2,8 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
 import '../data/api/binance_api.dart';
+import '../data/models/journal_entry.dart';
+import '../data/repositories/journal_repository.dart';
 import '../data/repositories/settings_repository.dart';
 import '../data/repositories/trading_repository.dart';
 import 'strategy.dart';
@@ -28,8 +30,9 @@ class AutoTradeReport {
 /// Bracket SL/TP are attached only when the user has the global
 /// `autoAttachSlTp` setting on.
 class AutoTrader {
-  AutoTrader(this._trading);
+  AutoTrader(this._trading, this._journal);
   final TradingRepository _trading;
+  final JournalRepository _journal;
 
   Future<AutoTradeReport> processSignals(
     List<Signal> ranked,
@@ -105,12 +108,31 @@ class AutoTrader {
           isolated: settings.isolatedMargin,
           leverage: settings.defaultLeverage,
         );
+        final filledPrice = r.entry.avgPrice == 0 ? r.entry.price : r.entry.avgPrice;
         placed.add('${sig.symbol} ${sig.side == SignalSide.long ? "LONG" : "SHORT"} '
-            '${sig.confidence}% @ ${r.entry.avgPrice == 0 ? r.entry.price : r.entry.avgPrice}');
+            '${sig.confidence}% @ $filledPrice');
         warnings.addAll(r.warnings.map((w) => '${sig.symbol}: $w'));
         available -= settings.autoTradeMarginUsdt;
         openSymbols.add(sig.symbol);
         currentOpen++;
+
+        // Journal the trade so the user can review it later.
+        await _journal.add(JournalEntry(
+          id: 'auto-${DateTime.now().microsecondsSinceEpoch}-${sig.symbol}',
+          symbol: sig.symbol,
+          side: sig.side,
+          openedAt: DateTime.now().millisecondsSinceEpoch,
+          entryPrice: filledPrice > 0 ? filledPrice : sig.plan.entry,
+          quantity: r.entry.executedQty > 0 ? r.entry.executedQty : quantity,
+          leverage: settings.defaultLeverage,
+          marginUsdt: settings.autoTradeMarginUsdt,
+          stopLoss: sig.plan.stopLoss,
+          takeProfit1: sig.plan.takeProfit1,
+          takeProfit2: sig.plan.takeProfit2,
+          takeProfit3: sig.plan.takeProfit3,
+          confidence: sig.confidence,
+          autoTraded: true,
+        ));
       } catch (e) {
         warnings.add('${sig.symbol} order failed: ${_pretty(e)}');
         if (kDebugMode) debugPrint('auto-trade entry failed for ${sig.symbol}: $e');

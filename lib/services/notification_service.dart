@@ -10,18 +10,50 @@ class NotificationService {
   final FlutterLocalNotificationsPlugin _plugin = FlutterLocalNotificationsPlugin();
   bool _initialized = false;
 
+  /// Symbol payload of the most recent tapped notification — populated by
+  /// either the cold-start launch details or the in-process tap callback.
+  /// Cleared once the router consumes it via [consumePendingSymbol].
+  final ValueNotifier<String?> pendingSymbol = ValueNotifier<String?>(null);
+
+  String? consumePendingSymbol() {
+    final v = pendingSymbol.value;
+    pendingSymbol.value = null;
+    return v;
+  }
+
   Future<void> ensureInitialized() async {
     if (_initialized) return;
     try {
       const init = InitializationSettings(
         android: AndroidInitializationSettings('@drawable/ic_apex_status'),
       );
-      await _plugin.initialize(init);
+      await _plugin.initialize(
+        init,
+        onDidReceiveNotificationResponse: _onTap,
+      );
       _initialized = true;
+
+      // If the user launched the app by tapping a notification (cold start),
+      // capture the payload so the router can navigate to the trade screen
+      // for that symbol once the home destination renders.
+      try {
+        final launch = await _plugin.getNotificationAppLaunchDetails();
+        if (launch?.didNotificationLaunchApp ?? false) {
+          final payload = launch?.notificationResponse?.payload;
+          if (payload != null && payload.isNotEmpty) {
+            pendingSymbol.value = payload;
+          }
+        }
+      } catch (_) {/* never fatal */}
     } catch (e) {
-      // Never let notification setup crash the app — the rest of the app works
-      // fine without notifications.
       debugPrint('Notification init failed: $e');
+    }
+  }
+
+  void _onTap(NotificationResponse response) {
+    final payload = response.payload;
+    if (payload != null && payload.isNotEmpty) {
+      pendingSymbol.value = payload;
     }
   }
 
@@ -85,6 +117,9 @@ class NotificationService {
         '$symbol $side • $confidence%',
         body,
         const NotificationDetails(android: channel),
+        // Payload is the symbol — the app pulls it via consumePendingSymbol()
+        // and the router pushes /trade/{symbol} or /signal/{symbol}.
+        payload: symbol,
       );
     } catch (e) {
       debugPrint('notify failed: $e');

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme.dart';
+import '../../data/models/journal_entry.dart';
 import '../../data/models/symbol_rules.dart';
 import '../../domain/strategy.dart';
 import '../../providers.dart';
@@ -188,6 +189,26 @@ class _TradeScreenState extends ConsumerState<TradeScreen> {
             leverage: _leverage,
           );
       if (!mounted) return;
+      // Record in the journal so the user can review wins / losses later.
+      try {
+        final filledPx = r.entry.avgPrice == 0 ? r.entry.price : r.entry.avgPrice;
+        await ref.read(journalRepoProvider).add(JournalEntry(
+              id: 'manual-${DateTime.now().microsecondsSinceEpoch}-${widget.symbol}',
+              symbol: widget.symbol,
+              side: _side,
+              openedAt: DateTime.now().millisecondsSinceEpoch,
+              entryPrice: filledPx > 0 ? filledPx : _entry,
+              quantity: r.entry.executedQty > 0 ? r.entry.executedQty : _quantity,
+              leverage: _leverage,
+              marginUsdt: _margin,
+              stopLoss: _effectiveSl,
+              takeProfit1: _effectiveTp1,
+              takeProfit2: _effectiveTp2,
+              takeProfit3: _effectiveTp3,
+              confidence: _signal?.confidence ?? 0,
+              autoTraded: false,
+            ));
+      } catch (_) {/* journal is best-effort */}
       setState(() {
         _placing = false;
         _result = 'Filled ${r.entry.executedQty} @ '
