@@ -206,23 +206,108 @@ class TradingRepository {
     required String tag,
     required List<String> warnings,
   }) async {
-    try {
-      await _api.newOrder(
-        symbol: symbol,
-        side: closeSide,
-        type: type,
-        // `reduceOnly: true` + an explicit quantity. NOT `closePosition: true`
-        // — that variant returns -4120 on accounts where Binance routes
-        // closePosition orders through the algo endpoint.
-        quantity: quantityFormatted,
-        stopPrice: stopPriceFormatted,
-        reduceOnly: true,
-        workingType: 'MARK_PRICE',
-        newClientOrderId: _coid(tag),
-      );
-    } catch (e) {
-      warnings.add('$tag attach failed: ${_pretty(e)}');
+    // Binance returns -4120 ("Order type not supported for this endpoint,
+    // please use the algo order API endpoints instead") for several different
+    // param combinations depending on the user's account type, hedge mode,
+    // and the specific symbol's order-routing config. Rather than guess
+    // which one is right, we try the most-permissive variants in order and
+    // stop at the first one that succeeds. The error from the FINAL variant
+    // is what we surface to the user.
+    final variants = <Future<void> Function()>[
+      // V1: standard reduceOnly + quantity, no workingType (defaults to
+      //     CONTRACT_PRICE). This is the simplest valid shape and works on
+      //     the widest set of symbols.
+      () => _api.newOrder(
+            symbol: symbol,
+            side: closeSide,
+            type: type,
+            quantity: quantityFormatted,
+            stopPrice: stopPriceFormatted,
+            reduceOnly: true,
+            newClientOrderId: _coid('${tag}A'),
+          ),
+      // V2: same shape but with MARK_PRICE workingType — Binance's
+      //     recommended trigger source for stop orders, supported on most
+      //     liquid pairs.
+      () => _api.newOrder(
+            symbol: symbol,
+            side: closeSide,
+            type: type,
+            quantity: quantityFormatted,
+            stopPrice: stopPriceFormatted,
+            reduceOnly: true,
+            workingType: 'MARK_PRICE',
+            newClientOrderId: _coid('${tag}B'),
+          ),
+      // V3: closePosition: true. This is what the Binance docs *prefer* for
+      //     position-closing stop orders, but on some account types it gets
+      //     routed through the algo endpoint and bounces with -4120. So we
+      //     try it AFTER the reduceOnly variants.
+      () => _api.newOrder(
+            symbol: symbol,
+            side: closeSide,
+            type: type,
+            stopPrice: stopPriceFormatted,
+            closePosition: true,
+            newClientOrderId: _coid('${tag}C'),
+          ),
+      // V4: closePosition + MARK_PRICE.
+      () => _api.newOrder(
+            symbol: symbol,
+            side: closeSide,
+            type: type,
+            stopPrice: stopPriceFormatted,
+            closePosition: true,
+            workingType: 'MARK_PRICE',
+            newClientOrderId: _coid('${tag}D'),
+          ),
+      // V5: hedge-mode shape — positionSide explicit, plus reduceOnly. Some
+      //     accounts have hedge mode enabled and reject orders that don't
+      //     specify the position side.
+      () => _api.newOrder(
+            symbol: symbol,
+            side: closeSide,
+            type: type,
+            quantity: quantityFormatted,
+            stopPrice: stopPriceFormatted,
+            reduceOnly: true,
+            positionSide: closeSide == 'SELL' ? 'LONG' : 'SHORT',
+            newClientOrderId: _coid('${tag}E'),
+          ),
+    ];
+
+    Object? lastError;
+    for (var i = 0; i < variants.length; i++) {
+      try {
+        await variants[i]();
+        return; // success
+      } catch (e) {
+        lastError = e;
+        if (_shouldFallback(e)) continue;
+        // For non-routing errors (e.g. -2021 "would immediately trigger",
+        // -4014 "tick size", etc.) there's no point trying more variants —
+        // they'll all hit the same validation failure.
+        warnings.add('$tag attach failed: ${_pretty(e)}');
+        return;
+      }
     }
+    warnings.add('$tag attach failed (all variants): ${_pretty(lastError ?? "unknown")}');
+  }
+
+  /// Returns true if the error is one where retrying with a different param
+  /// combination might succeed. We retry on -4120 (order type not supported
+  /// for this endpoint) and -1106 (mandatory parameter wrong shape).
+  bool _shouldFallback(Object e) {
+    final code = _binanceCode(e);
+    return code == -4120 || code == -1106;
+  }
+
+  int? _binanceCode(Object e) {
+    if (e is BinanceApiException) return e.code;
+    if (e is DioException && e.error is BinanceApiException) {
+      return (e.error as BinanceApiException).code;
+    }
+    return null;
   }
 
   String _pretty(Object e) {
