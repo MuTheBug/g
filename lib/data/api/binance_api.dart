@@ -187,7 +187,67 @@ class BinanceApi {
     String? newClientOrderId,
     String? positionSide,
   }) async {
-    final params = <String, dynamic>{
+    final r = await _dio.post<Map<String, dynamic>>(
+      '$_base/fapi/v1/order',
+      queryParameters: _orderParams(
+        symbol: symbol, side: side, type: type, quantity: quantity, price: price,
+        stopPrice: stopPrice, timeInForce: timeInForce, reduceOnly: reduceOnly,
+        closePosition: closePosition, workingType: workingType, priceProtect: priceProtect,
+        newClientOrderId: newClientOrderId, positionSide: positionSide,
+      ),
+      options: Options(extra: {'signed': true}),
+    );
+    return OrderResult.fromJson(r.data ?? const {});
+  }
+
+  /// Validates an order against Binance's full ruleset (price/qty filters,
+  /// account mode, current position state, etc.) without actually placing it.
+  /// Used by the "Test orders" diagnostic screen to figure out which bracket
+  /// param shape the user's account accepts. Throws the same Binance error
+  /// codes the real endpoint would, but never moves a position.
+  Future<void> testNewOrder({
+    required String symbol,
+    required String side,
+    required String type,
+    String? quantity,
+    String? price,
+    String? stopPrice,
+    String? timeInForce,
+    bool? reduceOnly,
+    bool? closePosition,
+    String? workingType,
+    bool? priceProtect,
+    String? newClientOrderId,
+    String? positionSide,
+  }) async {
+    await _dio.post<dynamic>(
+      '$_base/fapi/v1/order/test',
+      queryParameters: _orderParams(
+        symbol: symbol, side: side, type: type, quantity: quantity, price: price,
+        stopPrice: stopPrice, timeInForce: timeInForce, reduceOnly: reduceOnly,
+        closePosition: closePosition, workingType: workingType, priceProtect: priceProtect,
+        newClientOrderId: newClientOrderId, positionSide: positionSide,
+      ),
+      options: Options(extra: {'signed': true}),
+    );
+  }
+
+  Map<String, dynamic> _orderParams({
+    required String symbol,
+    required String side,
+    required String type,
+    String? quantity,
+    String? price,
+    String? stopPrice,
+    String? timeInForce,
+    bool? reduceOnly,
+    bool? closePosition,
+    String? workingType,
+    bool? priceProtect,
+    String? newClientOrderId,
+    String? positionSide,
+  }) {
+    return <String, dynamic>{
       'symbol': symbol,
       'side': side,
       'type': type,
@@ -202,12 +262,6 @@ class BinanceApi {
       if (newClientOrderId != null) 'newClientOrderId': newClientOrderId,
       if (positionSide != null) 'positionSide': positionSide,
     };
-    final r = await _dio.post<Map<String, dynamic>>(
-      '$_base/fapi/v1/order',
-      queryParameters: params,
-      options: Options(extra: {'signed': true}),
-    );
-    return OrderResult.fromJson(r.data ?? const {});
   }
 
   Future<void> cancelAllOrders(String symbol) async {

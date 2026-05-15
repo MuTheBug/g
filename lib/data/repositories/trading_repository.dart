@@ -11,6 +11,39 @@ class BracketResult {
   final List<String> warnings;
 }
 
+class OrderTestResult {
+  const OrderTestResult({
+    required this.label,
+    required this.params,
+    required this.passed,
+    this.errorCode,
+    this.errorMessage,
+  });
+
+  final String label;
+  final Map<String, dynamic> params;
+  final bool passed;
+  final int? errorCode;
+  final String? errorMessage;
+}
+
+class OrderTestReport {
+  const OrderTestReport({
+    required this.symbol,
+    required this.hedgeMode,
+    required this.markPrice,
+    required this.results,
+  });
+
+  final String symbol;
+  final bool hedgeMode;
+  final double markPrice;
+  final List<OrderTestResult> results;
+
+  Iterable<OrderTestResult> get passed => results.where((r) => r.passed);
+  Iterable<OrderTestResult> get failed => results.where((r) => !r.passed);
+}
+
 class TradingRepository {
   TradingRepository(this._api);
   final BinanceApi _api;
@@ -401,6 +434,193 @@ class TradingRepository {
   }
 
   Future<void> cancelAll(String symbol) => _api.cancelAllOrders(symbol);
+
+  /// Run every bracket-shape variant through Binance's `/fapi/v1/order/test`
+  /// endpoint without placing any real orders. Returns a report of which
+  /// shapes Binance accepts on the user's account, so the user can confirm
+  /// that the entry + SL + TPs would all go through if they pressed "Place".
+  ///
+  /// The reference prices are derived from the current mark:
+  ///   - LONG  entry @ mark, SL = mark * 0.97, TPs = mark * 1.015 / 1.025 / 1.04
+  ///   - SHORT entry @ mark, SL = mark * 1.03, TPs = mark * 0.985 / 0.975 / 0.96
+  /// You can override these via [overrideStopLoss] / [overrideTakeProfits]
+  /// to mirror an actual signal.
+  Future<OrderTestReport> testBracketShapes({
+    required String symbol,
+    required SignalSide side,
+    required double quantity,
+    double? overrideStopLoss,
+    List<double>? overrideTakeProfits,
+  }) async {
+    final results = <OrderTestResult>[];
+    final hedge = await _isHedgeMode();
+    double mark = 0;
+    try {
+      mark = await _api.getMarkPrice(symbol);
+    } catch (_) {}
+    final rules = await getSymbolRules(symbol);
+    if (rules == null) {
+      results.add(OrderTestResult(
+        label: 'Symbol rules',
+        params: const {},
+        passed: false,
+        errorMessage: 'No exchange rules for $symbol',
+      ));
+      return OrderTestReport(symbol: symbol, hedgeMode: hedge, markPrice: mark, results: results);
+    }
+    if (mark <= 0) {
+      results.add(const OrderTestResult(
+        label: 'Mark price',
+        params: {},
+        passed: false,
+        errorMessage: 'Could not fetch mark price',
+      ));
+      return OrderTestReport(symbol: symbol, hedgeMode: hedge, markPrice: mark, results: results);
+    }
+
+    final qtyStr = rules.formatQuantity(quantity);
+    final entrySide = side == SignalSide.long ? 'BUY' : 'SELL';
+    final closeSide = side == SignalSide.long ? 'SELL' : 'BUY';
+    final positionSide = closeSide == 'SELL' ? 'LONG' : 'SHORT';
+    final sl = overrideStopLoss ??
+        (side == SignalSide.long ? mark * 0.97 : mark * 1.03);
+    final tps = overrideTakeProfits ??
+        (side == SignalSide.long
+            ? [mark * 1.015, mark * 1.025, mark * 1.04]
+            : [mark * 0.985, mark * 0.975, mark * 0.96]);
+
+    // ---- Entry (MARKET) ----
+    final entryParams = <String, dynamic>{
+      'symbol': symbol,
+      'side': entrySide,
+      'type': 'MARKET',
+      'quantity': qtyStr,
+      if (hedge) 'positionSide': positionSide,
+    };
+    final entryResult = await _runOne(
+      label: 'Entry — MARKET ${side == SignalSide.long ? "LONG" : "SHORT"}',
+      params: entryParams,
+      call: () => _api.testNewOrder(
+        symbol: symbol,
+        side: entrySide,
+        type: 'MARKET',
+        quantity: qtyStr,
+        positionSide: hedge ? positionSide : null,
+        newClientOrderId: _coid('TEST-ENTRY'),
+      ),
+    );
+    results.add(entryResult);
+
+    // ---- Bracket variants (SL + each TP) ----
+    final brackets = <(String, String, double)>[
+      ('SL', 'STOP_MARKET', sl),
+      ('TP1', 'TAKE_PROFIT_MARKET', tps[0]),
+      if (tps.length >= 2) ('TP2', 'TAKE_PROFIT_MARKET', tps[1]),
+      if (tps.length >= 3) ('TP3', 'TAKE_PROFIT_MARKET', tps[2]),
+    ];
+
+    for (final b in brackets) {
+      final (tag, type, price) = b;
+      final stopStr = rules.formatPrice(price);
+      // Variant A — preferred shape for this account mode
+      if (hedge) {
+        results.add(await _runOne(
+          label: '$tag (A) — positionSide+qty',
+          params: {
+            'side': closeSide, 'type': type, 'quantity': qtyStr,
+            'stopPrice': stopStr, 'positionSide': positionSide,
+          },
+          call: () => _api.testNewOrder(
+            symbol: symbol, side: closeSide, type: type, quantity: qtyStr,
+            stopPrice: stopStr, positionSide: positionSide,
+            newClientOrderId: _coid('TEST-${tag}A'),
+          ),
+        ));
+        results.add(await _runOne(
+          label: '$tag (B) — positionSide+qty+MARK_PRICE',
+          params: {
+            'side': closeSide, 'type': type, 'quantity': qtyStr,
+            'stopPrice': stopStr, 'positionSide': positionSide,
+            'workingType': 'MARK_PRICE',
+          },
+          call: () => _api.testNewOrder(
+            symbol: symbol, side: closeSide, type: type, quantity: qtyStr,
+            stopPrice: stopStr, positionSide: positionSide, workingType: 'MARK_PRICE',
+            newClientOrderId: _coid('TEST-${tag}B'),
+          ),
+        ));
+        results.add(await _runOne(
+          label: '$tag (C) — positionSide+closePosition',
+          params: {
+            'side': closeSide, 'type': type, 'stopPrice': stopStr,
+            'positionSide': positionSide, 'closePosition': true,
+          },
+          call: () => _api.testNewOrder(
+            symbol: symbol, side: closeSide, type: type, stopPrice: stopStr,
+            positionSide: positionSide, closePosition: true,
+            newClientOrderId: _coid('TEST-${tag}C'),
+          ),
+        ));
+      } else {
+        results.add(await _runOne(
+          label: '$tag (A) — reduceOnly+qty',
+          params: {
+            'side': closeSide, 'type': type, 'quantity': qtyStr,
+            'stopPrice': stopStr, 'reduceOnly': true,
+          },
+          call: () => _api.testNewOrder(
+            symbol: symbol, side: closeSide, type: type, quantity: qtyStr,
+            stopPrice: stopStr, reduceOnly: true,
+            newClientOrderId: _coid('TEST-${tag}A'),
+          ),
+        ));
+        results.add(await _runOne(
+          label: '$tag (B) — reduceOnly+qty+MARK_PRICE',
+          params: {
+            'side': closeSide, 'type': type, 'quantity': qtyStr,
+            'stopPrice': stopStr, 'reduceOnly': true, 'workingType': 'MARK_PRICE',
+          },
+          call: () => _api.testNewOrder(
+            symbol: symbol, side: closeSide, type: type, quantity: qtyStr,
+            stopPrice: stopStr, reduceOnly: true, workingType: 'MARK_PRICE',
+            newClientOrderId: _coid('TEST-${tag}B'),
+          ),
+        ));
+        results.add(await _runOne(
+          label: '$tag (C) — closePosition',
+          params: {
+            'side': closeSide, 'type': type, 'stopPrice': stopStr,
+            'closePosition': true,
+          },
+          call: () => _api.testNewOrder(
+            symbol: symbol, side: closeSide, type: type, stopPrice: stopStr,
+            closePosition: true, newClientOrderId: _coid('TEST-${tag}C'),
+          ),
+        ));
+      }
+    }
+    return OrderTestReport(symbol: symbol, hedgeMode: hedge, markPrice: mark, results: results);
+  }
+
+  Future<OrderTestResult> _runOne({
+    required String label,
+    required Map<String, dynamic> params,
+    required Future<void> Function() call,
+  }) async {
+    try {
+      await call();
+      return OrderTestResult(label: label, params: params, passed: true);
+    } catch (e) {
+      final code = _binanceCode(e);
+      return OrderTestResult(
+        label: label,
+        params: params,
+        passed: false,
+        errorCode: code,
+        errorMessage: _pretty(e),
+      );
+    }
+  }
 
   String _coid(String tag) {
     final id = 'APEX-$tag-${DateTime.now().millisecondsSinceEpoch}';

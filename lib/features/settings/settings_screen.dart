@@ -10,8 +10,14 @@ import '../../services/notification_service.dart';
 import '../../widgets/common.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
-  const SettingsScreen({super.key, required this.onAbout, required this.onDisconnect});
+  const SettingsScreen({
+    super.key,
+    required this.onAbout,
+    required this.onTestOrders,
+    required this.onDisconnect,
+  });
   final VoidCallback onAbout;
+  final VoidCallback onTestOrders;
   final VoidCallback onDisconnect;
 
   @override
@@ -322,6 +328,30 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               onChanged: (v) =>
                   notifier.update((st) => st.copyWith(biometricLockEnabled: v)),
             ),
+          ]),
+        ),
+        const SizedBox(height: 10),
+
+        // -------- Diagnostics --------
+        ApexCard(
+          onTap: widget.onTestOrders,
+          child: Row(children: [
+            const Icon(Icons.science_outlined, color: ApexColors.highlight),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Test orders', style: Theme.of(context).textTheme.titleMedium),
+                  const Text(
+                    'Validate entry + SL + TP shapes against /order/test '
+                    "without placing real orders.",
+                    style: TextStyle(color: ApexColors.textMuted),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.open_in_new, color: ApexColors.textMuted),
           ]),
         ),
         const SizedBox(height: 10),

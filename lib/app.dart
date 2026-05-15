@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'core/theme.dart';
 import 'features/about/about_screen.dart';
 import 'features/biometric/biometric_gate.dart';
+import 'features/diagnostics/test_orders_screen.dart';
 import 'features/journal/journal_screen.dart';
 import 'features/positions/positions_screen.dart';
 import 'features/scanner/scanner_screen.dart';
@@ -137,6 +138,7 @@ class _ApexAppState extends ConsumerState<ApexApp> {
           path: '/settings',
           builder: (ctx, __) => SettingsScreen(
             onAbout: () => ctx.push('/about'),
+            onTestOrders: () => ctx.push('/test-orders'),
             // Disconnect blows the stack and lands on /setup.
             onDisconnect: () => ctx.go('/setup'),
           ),
@@ -144,6 +146,10 @@ class _ApexAppState extends ConsumerState<ApexApp> {
         GoRoute(
           path: '/about',
           builder: (_, __) => const AboutScreen(),
+        ),
+        GoRoute(
+          path: '/test-orders',
+          builder: (_, __) => const TestOrdersScreen(),
         ),
       ],
     );
