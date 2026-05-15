@@ -449,6 +449,11 @@ class _RetryInterceptor extends Interceptor {
   bool _isTransient(DioException e) {
     final code = e.response?.statusCode ?? 0;
     if (code >= 500 && code < 600) return true;
+    // Never retry rate-limit responses — that's how you compound an IP ban.
+    if (code == 429 || code == 418) return false;
+    final inner = e.error;
+    if (inner is BinanceApiException &&
+        (inner.code == -1003 || inner.code == -1015)) return false;
     if (e.type == DioExceptionType.connectionError ||
         e.type == DioExceptionType.connectionTimeout ||
         e.type == DioExceptionType.receiveTimeout ||

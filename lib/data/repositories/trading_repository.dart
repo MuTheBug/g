@@ -85,9 +85,62 @@ class TradingRepository {
     return _rulesCache?[symbol];
   }
 
-  Future<Account> getAccount() => _api.getAccount();
-  Future<List<Position>> getOpenPositions() => _api.getOpenPositions();
-  Future<double> getMarkPrice(String symbol) => _api.getMarkPrice(symbol);
+  // Short-lived caches for account / positions / mark prices so multiple
+  // screens (Positions, Journal, Trade, Auto-trader) reading the same
+  // endpoints back-to-back don't burn through the IP rate limit and trip
+  // the -1003 "Way too many requests; IP banned" response.
+  static const _accountTtlMs = 5_000;
+  static const _positionsTtlMs = 5_000;
+  static const _markTtlMs = 3_000;
+
+  Account? _accountCache;
+  int _accountAt = 0;
+  List<Position>? _positionsCache;
+  int _positionsAt = 0;
+  final Map<String, _MarkCacheEntry> _markCache = {};
+
+  Future<Account> getAccount({bool force = false}) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final cached = _accountCache;
+    if (!force && cached != null && now - _accountAt < _accountTtlMs) {
+      return cached;
+    }
+    final r = await _api.getAccount();
+    _accountCache = r;
+    _accountAt = now;
+    return r;
+  }
+
+  Future<List<Position>> getOpenPositions({bool force = false}) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final cached = _positionsCache;
+    if (!force && cached != null && now - _positionsAt < _positionsTtlMs) {
+      return cached;
+    }
+    final r = await _api.getOpenPositions();
+    _positionsCache = r;
+    _positionsAt = now;
+    return r;
+  }
+
+  Future<double> getMarkPrice(String symbol, {bool force = false}) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final cached = _markCache[symbol];
+    if (!force && cached != null && now - cached.at < _markTtlMs) {
+      return cached.value;
+    }
+    final r = await _api.getMarkPrice(symbol);
+    _markCache[symbol] = _MarkCacheEntry(r, now);
+    return r;
+  }
+
+  /// Forces a fresh fetch on the next call to [getAccount] / [getOpenPositions].
+  /// Call this immediately after placing or closing an order so the user sees
+  /// the new state instead of a stale cached snapshot.
+  void invalidateAccountCaches() {
+    _accountCache = null;
+    _positionsCache = null;
+  }
 
   /// Places a market entry and (optionally) attaches a stop-loss + take-profits.
   ///
@@ -138,6 +191,9 @@ class TradingRepository {
       quantity: rules.formatQuantity(quantity),
       newClientOrderId: _coid('ENTRY'),
     );
+    // Account + positions just changed — drop the caches so the next read
+    // (Positions screen, auto-trader's open-count check) sees the new state.
+    invalidateAccountCaches();
 
     // The quantity actually filled is what we close against. For MARKET orders
     // executedQty is populated; fall back to the requested quantity if not.
@@ -259,135 +315,53 @@ class TradingRepository {
     required String tag,
     required List<String> warnings,
   }) async {
-    // The two bracket shapes are mutually exclusive:
+    // We talk to the conditional algo endpoint (POST /fapi/v1/algoOrder)
+    // exclusively. The standard /fapi/v1/order endpoint returns -4120 for
+    // STOP_MARKET / TAKE_PROFIT_MARKET on every account where Binance has
+    // enabled algo routing — including this user's — so attempting it just
+    // wastes API weight and risks tripping -1003 IP bans.
     //
-    //   - HEDGE MODE  (dualSidePosition = true): the account holds separate
-    //     LONG and SHORT positions per symbol. To close one of them you must
-    //     pass `positionSide=LONG|SHORT`; sending `reduceOnly` returns
-    //     -1106 "reduceOnly sent when not required".
-    //
-    //   - ONE-WAY MODE (dualSidePosition = false): there's a single BOTH
-    //     position per symbol. You must send `reduceOnly=true` (or
-    //     `closePosition=true`); sending `positionSide` returns -4061
-    //     "Position side does not match user setting".
-    //
-    // We detect which mode the user is in once, cache the result, and pick
-    // the right shape first. The opposite-mode shape is kept as a fallback in
-    // case the lookup itself failed.
+    // The two account modes have mutually-exclusive close-order shapes:
+    //   HEDGE (dualSidePosition = true): pass positionSide=LONG|SHORT,
+    //     do NOT send reduceOnly (returns -1106 "not required").
+    //   ONE-WAY: pass reduceOnly=true, do NOT send positionSide (returns
+    //     -4061 "position side does not match user setting").
     final hedge = await _isHedgeMode();
     final positionSide = closeSide == 'SELL' ? 'LONG' : 'SHORT';
 
     final variants = <_BracketVariant>[
-      if (hedge) ...[
-        _BracketVariant('A', () => _api.newOrder(
-              symbol: symbol, side: closeSide, type: type,
-              quantity: quantityFormatted, stopPrice: stopPriceFormatted,
-              positionSide: positionSide,
-              newClientOrderId: _coid('${tag}A'),
-            )),
-        _BracketVariant('B', () => _api.newOrder(
-              symbol: symbol, side: closeSide, type: type,
-              quantity: quantityFormatted, stopPrice: stopPriceFormatted,
-              positionSide: positionSide, workingType: 'MARK_PRICE',
-              newClientOrderId: _coid('${tag}B'),
-            )),
-        _BracketVariant('C', () => _api.newOrder(
-              symbol: symbol, side: closeSide, type: type,
-              stopPrice: stopPriceFormatted,
-              positionSide: positionSide, closePosition: true,
-              newClientOrderId: _coid('${tag}C'),
-            )),
-      ] else ...[
-        _BracketVariant('A', () => _api.newOrder(
-              symbol: symbol, side: closeSide, type: type,
-              quantity: quantityFormatted, stopPrice: stopPriceFormatted,
-              reduceOnly: true,
-              newClientOrderId: _coid('${tag}A'),
-            )),
-        _BracketVariant('B', () => _api.newOrder(
-              symbol: symbol, side: closeSide, type: type,
-              quantity: quantityFormatted, stopPrice: stopPriceFormatted,
-              reduceOnly: true, workingType: 'MARK_PRICE',
-              newClientOrderId: _coid('${tag}B'),
-            )),
-        _BracketVariant('C', () => _api.newOrder(
-              symbol: symbol, side: closeSide, type: type,
-              stopPrice: stopPriceFormatted, closePosition: true,
-              newClientOrderId: _coid('${tag}C'),
-            )),
-      ],
-      // Algo conditional endpoint (POST /fapi/v1/algoOrder). Binance's
-      // -4120 error explicitly tells us to use this when the standard
-      // endpoint rejects STOP_MARKET / TAKE_PROFIT_MARKET. Same shapes as
-      // above but: algoType=CONDITIONAL is implicit, and the trigger field
-      // is named `triggerPrice` instead of `stopPrice`.
-      if (hedge) ...[
-        _BracketVariant('algoA', () async {
-          await _api.newAlgoConditional(
-            symbol: symbol, side: closeSide, type: type,
-            quantity: quantityFormatted, triggerPrice: stopPriceFormatted,
-            positionSide: positionSide,
-            clientAlgoId: _coid('${tag}aA'),
-          );
-        }),
-        _BracketVariant('algoB', () async {
-          await _api.newAlgoConditional(
-            symbol: symbol, side: closeSide, type: type,
-            quantity: quantityFormatted, triggerPrice: stopPriceFormatted,
-            positionSide: positionSide, workingType: 'MARK_PRICE',
-            clientAlgoId: _coid('${tag}aB'),
-          );
-        }),
-        _BracketVariant('algoC', () async {
-          await _api.newAlgoConditional(
-            symbol: symbol, side: closeSide, type: type,
-            triggerPrice: stopPriceFormatted,
-            positionSide: positionSide, closePosition: true,
-            clientAlgoId: _coid('${tag}aC'),
-          );
-        }),
-      ] else ...[
-        _BracketVariant('algoA', () async {
-          await _api.newAlgoConditional(
-            symbol: symbol, side: closeSide, type: type,
-            quantity: quantityFormatted, triggerPrice: stopPriceFormatted,
-            reduceOnly: true,
-            clientAlgoId: _coid('${tag}aA'),
-          );
-        }),
-        _BracketVariant('algoB', () async {
-          await _api.newAlgoConditional(
-            symbol: symbol, side: closeSide, type: type,
-            quantity: quantityFormatted, triggerPrice: stopPriceFormatted,
-            reduceOnly: true, workingType: 'MARK_PRICE',
-            clientAlgoId: _coid('${tag}aB'),
-          );
-        }),
-        _BracketVariant('algoC', () async {
-          await _api.newAlgoConditional(
-            symbol: symbol, side: closeSide, type: type,
-            triggerPrice: stopPriceFormatted, closePosition: true,
-            clientAlgoId: _coid('${tag}aC'),
-          );
-        }),
-      ],
-      // Final crossover: the *other* mode's preferred standard-endpoint
-      // shape, in case our cached mode flag was stale or the probe call
-      // failed.
-      if (hedge)
-        _BracketVariant('Z', () => _api.newOrder(
-              symbol: symbol, side: closeSide, type: type,
-              quantity: quantityFormatted, stopPrice: stopPriceFormatted,
-              reduceOnly: true,
-              newClientOrderId: _coid('${tag}Z'),
-            ))
-      else
-        _BracketVariant('Z', () => _api.newOrder(
-              symbol: symbol, side: closeSide, type: type,
-              quantity: quantityFormatted, stopPrice: stopPriceFormatted,
-              positionSide: positionSide,
-              newClientOrderId: _coid('${tag}Z'),
-            )),
+      // Primary: mode-correct shape on the algo endpoint.
+      _BracketVariant('algoA', () async {
+        await _api.newAlgoConditional(
+          symbol: symbol, side: closeSide, type: type,
+          quantity: quantityFormatted, triggerPrice: stopPriceFormatted,
+          reduceOnly: hedge ? null : true,
+          positionSide: hedge ? positionSide : null,
+          clientAlgoId: _coid('${tag}aA'),
+        );
+      }),
+      // Mode crossover: opposite-mode shape in case the cached mode flag
+      // was stale or the probe call earlier failed.
+      _BracketVariant('algoX', () async {
+        await _api.newAlgoConditional(
+          symbol: symbol, side: closeSide, type: type,
+          quantity: quantityFormatted, triggerPrice: stopPriceFormatted,
+          reduceOnly: hedge ? true : null,
+          positionSide: hedge ? null : positionSide,
+          clientAlgoId: _coid('${tag}aX'),
+        );
+      }),
+      // With MARK_PRICE working type — some symbols/accounts need this.
+      _BracketVariant('algoMark', () async {
+        await _api.newAlgoConditional(
+          symbol: symbol, side: closeSide, type: type,
+          quantity: quantityFormatted, triggerPrice: stopPriceFormatted,
+          reduceOnly: hedge ? null : true,
+          positionSide: hedge ? positionSide : null,
+          workingType: 'MARK_PRICE',
+          clientAlgoId: _coid('${tag}aM'),
+        );
+      }),
     ];
 
     Object? lastError;
@@ -478,7 +452,7 @@ class TradingRepository {
   }) async {
     final hedge = await _isHedgeMode();
     final closeSide = side == SignalSide.long ? 'SELL' : 'BUY';
-    return _api.newOrder(
+    final r = await _api.newOrder(
       symbol: symbol,
       side: closeSide,
       type: 'MARKET',
@@ -487,6 +461,8 @@ class TradingRepository {
       positionSide: hedge ? (side == SignalSide.long ? 'LONG' : 'SHORT') : null,
       newClientOrderId: _coid('CLOSE'),
     );
+    invalidateAccountCaches();
+    return r;
   }
 
   Future<void> cancelAll(String symbol) => _api.cancelAllOrders(symbol);
@@ -578,143 +554,32 @@ class TradingRepository {
     for (final b in brackets) {
       final (tag, type, price) = b;
       final stopStr = rules.formatPrice(price);
-      // Variant A — preferred shape for this account mode
-      if (hedge) {
-        results.add(await _runOne(
-          label: '$tag (A) — positionSide+qty',
-          params: {
-            'side': closeSide, 'type': type, 'quantity': qtyStr,
-            'stopPrice': stopStr, 'positionSide': positionSide,
-          },
-          call: () => _api.testNewOrder(
-            symbol: symbol, side: closeSide, type: type, quantity: qtyStr,
-            stopPrice: stopStr, positionSide: positionSide,
-            newClientOrderId: _coid('TEST-${tag}A'),
-          ),
-        ));
-        results.add(await _runOne(
-          label: '$tag (B) — positionSide+qty+MARK_PRICE',
-          params: {
-            'side': closeSide, 'type': type, 'quantity': qtyStr,
-            'stopPrice': stopStr, 'positionSide': positionSide,
-            'workingType': 'MARK_PRICE',
-          },
-          call: () => _api.testNewOrder(
-            symbol: symbol, side: closeSide, type: type, quantity: qtyStr,
-            stopPrice: stopStr, positionSide: positionSide, workingType: 'MARK_PRICE',
-            newClientOrderId: _coid('TEST-${tag}B'),
-          ),
-        ));
-        results.add(await _runOne(
-          label: '$tag (C) — positionSide+closePosition',
-          params: {
-            'side': closeSide, 'type': type, 'stopPrice': stopStr,
-            'positionSide': positionSide, 'closePosition': true,
-          },
-          call: () => _api.testNewOrder(
-            symbol: symbol, side: closeSide, type: type, stopPrice: stopStr,
-            positionSide: positionSide, closePosition: true,
-            newClientOrderId: _coid('TEST-${tag}C'),
-          ),
-        ));
-      } else {
-        results.add(await _runOne(
-          label: '$tag (A) — reduceOnly+qty',
-          params: {
-            'side': closeSide, 'type': type, 'quantity': qtyStr,
-            'stopPrice': stopStr, 'reduceOnly': true,
-          },
-          call: () => _api.testNewOrder(
-            symbol: symbol, side: closeSide, type: type, quantity: qtyStr,
-            stopPrice: stopStr, reduceOnly: true,
-            newClientOrderId: _coid('TEST-${tag}A'),
-          ),
-        ));
-        results.add(await _runOne(
-          label: '$tag (B) — reduceOnly+qty+MARK_PRICE',
-          params: {
-            'side': closeSide, 'type': type, 'quantity': qtyStr,
-            'stopPrice': stopStr, 'reduceOnly': true, 'workingType': 'MARK_PRICE',
-          },
-          call: () => _api.testNewOrder(
-            symbol: symbol, side: closeSide, type: type, quantity: qtyStr,
-            stopPrice: stopStr, reduceOnly: true, workingType: 'MARK_PRICE',
-            newClientOrderId: _coid('TEST-${tag}B'),
-          ),
-        ));
-        results.add(await _runOne(
-          label: '$tag (C) — closePosition',
-          params: {
-            'side': closeSide, 'type': type, 'stopPrice': stopStr,
-            'closePosition': true,
-          },
-          call: () => _api.testNewOrder(
-            symbol: symbol, side: closeSide, type: type, stopPrice: stopStr,
-            closePosition: true, newClientOrderId: _coid('TEST-${tag}C'),
-          ),
-        ));
-      }
 
-      // ---- Algo conditional endpoint (POST /fapi/v1/algoOrder) ----
-      // No /test variant exists for this endpoint, so we actually place
-      // the order, then immediately cancel it. Even when the standard
-      // endpoint returns -4120, the algo endpoint should succeed.
-      if (hedge) {
-        results.add(await _runAlgoPlaceAndCancel(
-          label: '$tag (algoA) — positionSide+qty',
-          params: {
-            'endpoint': '/fapi/v1/algoOrder', 'algoType': 'CONDITIONAL',
-            'side': closeSide, 'type': type, 'quantity': qtyStr,
-            'triggerPrice': stopStr, 'positionSide': positionSide,
-          },
-          call: () => _api.newAlgoConditional(
-            symbol: symbol, side: closeSide, type: type, quantity: qtyStr,
-            triggerPrice: stopStr, positionSide: positionSide,
-            clientAlgoId: _coid('TEST-${tag}aA'),
-          ),
-        ));
-        results.add(await _runAlgoPlaceAndCancel(
-          label: '$tag (algoC) — positionSide+closePosition',
-          params: {
-            'endpoint': '/fapi/v1/algoOrder', 'algoType': 'CONDITIONAL',
-            'side': closeSide, 'type': type,
-            'triggerPrice': stopStr, 'positionSide': positionSide,
-            'closePosition': true,
-          },
-          call: () => _api.newAlgoConditional(
-            symbol: symbol, side: closeSide, type: type,
-            triggerPrice: stopStr, positionSide: positionSide, closePosition: true,
-            clientAlgoId: _coid('TEST-${tag}aC'),
-          ),
-        ));
-      } else {
-        results.add(await _runAlgoPlaceAndCancel(
-          label: '$tag (algoA) — reduceOnly+qty',
-          params: {
-            'endpoint': '/fapi/v1/algoOrder', 'algoType': 'CONDITIONAL',
-            'side': closeSide, 'type': type, 'quantity': qtyStr,
-            'triggerPrice': stopStr, 'reduceOnly': true,
-          },
-          call: () => _api.newAlgoConditional(
-            symbol: symbol, side: closeSide, type: type, quantity: qtyStr,
-            triggerPrice: stopStr, reduceOnly: true,
-            clientAlgoId: _coid('TEST-${tag}aA'),
-          ),
-        ));
-        results.add(await _runAlgoPlaceAndCancel(
-          label: '$tag (algoC) — closePosition',
-          params: {
-            'endpoint': '/fapi/v1/algoOrder', 'algoType': 'CONDITIONAL',
-            'side': closeSide, 'type': type, 'triggerPrice': stopStr,
-            'closePosition': true,
-          },
-          call: () => _api.newAlgoConditional(
-            symbol: symbol, side: closeSide, type: type,
-            triggerPrice: stopStr, closePosition: true,
-            clientAlgoId: _coid('TEST-${tag}aC'),
-          ),
-        ));
-      }
+      // Algo endpoint, mode-correct shape — the variant we actually use in
+      // production. Place then immediately cancel so the test leaves no
+      // live order behind.
+      results.add(await _runAlgoPlaceAndCancel(
+        label: hedge
+            ? '$tag — algoOrder positionSide+qty'
+            : '$tag — algoOrder reduceOnly+qty',
+        params: {
+          'endpoint': '/fapi/v1/algoOrder', 'algoType': 'CONDITIONAL',
+          'side': closeSide, 'type': type, 'quantity': qtyStr,
+          'triggerPrice': stopStr,
+          if (hedge) 'positionSide': positionSide else 'reduceOnly': true,
+        },
+        call: () => _api.newAlgoConditional(
+          symbol: symbol, side: closeSide, type: type, quantity: qtyStr,
+          triggerPrice: stopStr,
+          reduceOnly: hedge ? null : true,
+          positionSide: hedge ? positionSide : null,
+          clientAlgoId: _coid('TEST-${tag}aA'),
+        ),
+      ));
+      // Throttle so the test doesn't trip -1003 IP rate limit when run
+      // back-to-back. The algo cancel is sync but light; this adds a
+      // ~150ms gap between the place/cancel pairs.
+      await Future<void>.delayed(const Duration(milliseconds: 150));
     }
     return OrderTestReport(symbol: symbol, hedgeMode: hedge, markPrice: mark, results: results);
   }
@@ -780,6 +645,12 @@ class _BracketVariant {
   _BracketVariant(this.tag, this.run);
   final String tag;
   final Future<void> Function() run;
+}
+
+class _MarkCacheEntry {
+  const _MarkCacheEntry(this.value, this.at);
+  final double value;
+  final int at;
 }
 
 enum _BracketKind { sl, tp }
