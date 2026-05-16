@@ -16,6 +16,7 @@ class ScannerScreen extends ConsumerStatefulWidget {
     required this.onSettingsTap,
     required this.onJournalTap,
     required this.onBacktestTap,
+    required this.onScanHistoryTap,
   });
 
   final void Function(String symbol) onSignalTap;
@@ -23,6 +24,7 @@ class ScannerScreen extends ConsumerStatefulWidget {
   final VoidCallback onSettingsTap;
   final VoidCallback onJournalTap;
   final VoidCallback onBacktestTap;
+  final VoidCallback onScanHistoryTap;
 
   @override
   ConsumerState<ScannerScreen> createState() => _ScannerScreenState();
@@ -83,6 +85,11 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
             tooltip: 'Backtest',
             onPressed: widget.onBacktestTap,
             icon: const Icon(Icons.history_toggle_off_outlined),
+          ),
+          IconButton(
+            tooltip: 'Scan history',
+            onPressed: widget.onScanHistoryTap,
+            icon: const Icon(Icons.history),
           ),
           IconButton(
             tooltip: 'Journal',

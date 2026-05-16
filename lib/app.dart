@@ -8,6 +8,7 @@ import 'features/backtest/backtest_screen.dart';
 import 'features/biometric/biometric_gate.dart';
 import 'features/diagnostics/test_orders_screen.dart';
 import 'features/journal/journal_screen.dart';
+import 'features/scan_history/scan_history_screen.dart';
 import 'features/positions/positions_screen.dart';
 import 'features/scanner/scanner_screen.dart';
 import 'features/settings/settings_screen.dart';
@@ -50,17 +51,24 @@ class _ApexAppState extends ConsumerState<ApexApp> {
   }
 
   void _handlePendingSymbol() {
-    final symbol = NotificationService.instance.pendingSymbol.value;
-    if (symbol == null || symbol.isEmpty) return;
+    final payload = NotificationService.instance.pendingSymbol.value;
+    if (payload == null || payload.isEmpty) return;
     final hasCreds = ref.read(credentialsProvider) != null;
     if (!hasCreds) {
       NotificationService.instance.consumePendingSymbol();
       return;
     }
     NotificationService.instance.consumePendingSymbol();
-    // Push the trade screen so the user lands directly on order placement;
-    // the back arrow takes them to the scanner.
-    _router.push('/trade/$symbol');
+    // Scan-summary and auto-trade-fill notifications use named-route payloads
+    // ("scan-history" / "positions") instead of a symbol. Anything else is
+    // treated as a symbol → /trade/{symbol}.
+    if (payload == 'scan-history') {
+      _router.push('/scan-history');
+    } else if (payload == 'positions') {
+      _router.push('/positions');
+    } else {
+      _router.push('/trade/$payload');
+    }
   }
 
   @override
@@ -97,6 +105,7 @@ class _ApexAppState extends ConsumerState<ApexApp> {
             onSettingsTap: () => ctx.push('/settings'),
             onJournalTap: () => ctx.push('/journal'),
             onBacktestTap: () => ctx.push('/backtest'),
+            onScanHistoryTap: () => ctx.push('/scan-history'),
           ),
         ),
         GoRoute(
@@ -156,6 +165,10 @@ class _ApexAppState extends ConsumerState<ApexApp> {
         GoRoute(
           path: '/backtest',
           builder: (_, __) => const BacktestScreen(),
+        ),
+        GoRoute(
+          path: '/scan-history',
+          builder: (_, __) => const ScanHistoryScreen(),
         ),
       ],
     );

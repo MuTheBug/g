@@ -1,6 +1,6 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../data/models/scan_record.dart';
 import '../../domain/strategy.dart';
 import '../../providers.dart';
 
@@ -76,13 +76,11 @@ class ScannerController extends Notifier<ScannerState> {
       autoTradeWarnings: const [],
     );
     try {
-      final settings = await ref.read(settingsRepoProvider).load();
-      final scanner = ref.read(scannerProvider);
-      final signals = await scanner.scan(
-        settings: settings,
+      final pipeline = ref.read(scanPipelineProvider);
+      final result = await pipeline.run(
+        source: ScanSource.foreground,
         onProgress: (p) {
           final now = DateTime.now().millisecondsSinceEpoch;
-          // Always emit the final tick (processed == total); throttle everything else.
           final isFinal = p.processed == p.total;
           if (!isFinal && now - _lastEmitMs < _minProgressGapMs) return;
           _lastEmitMs = now;
@@ -96,25 +94,13 @@ class ScannerController extends Notifier<ScannerState> {
       );
       state = state.copyWith(
         scanning: false,
-        signals: signals,
-        lastScanAt: DateTime.now().millisecondsSinceEpoch,
+        signals: result.signals,
+        lastScanAt: result.record.startedAt,
+        autoTradePlaced: result.record.autoTradePlaced,
+        autoTradeSkipped: result.record.autoTradeSkipped,
+        autoTradeWarnings: result.record.autoTradeWarnings,
+        error: result.record.error,
       );
-
-      // Auto-trade pass — only when the user explicitly enabled it.
-      if (settings.autoTradeEnabled && signals.isNotEmpty) {
-        try {
-          final at = ref.read(autoTraderProvider);
-          final report = await at.processSignals(signals, settings);
-          state = state.copyWith(
-            autoTradePlaced: report.placed,
-            autoTradeSkipped: report.skipped,
-            autoTradeWarnings: report.warnings,
-          );
-        } catch (e) {
-          if (kDebugMode) debugPrint('auto-trade pass failed: $e');
-          state = state.copyWith(autoTradeWarnings: ['Auto-trade failed: $e']);
-        }
-      }
     } catch (e) {
       state = state.copyWith(scanning: false, error: e.toString());
     }

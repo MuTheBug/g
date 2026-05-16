@@ -5,7 +5,12 @@ import 'package:workmanager/workmanager.dart';
 
 import '../data/api/binance_api.dart';
 import '../data/local/secure_credential_store.dart';
+import '../data/models/scan_record.dart';
+import '../data/repositories/journal_repository.dart';
+import '../data/repositories/scan_history_repository.dart';
 import '../data/repositories/settings_repository.dart';
+import '../data/repositories/trading_repository.dart';
+import '../domain/scan_pipeline.dart';
 import '../domain/scanner.dart';
 import '../domain/strategy.dart';
 import 'notification_service.dart';
@@ -13,37 +18,83 @@ import 'notification_service.dart';
 const _kPeriodicTask = 'apex_periodic_scan';
 const _kOneShotTask = 'apex_oneshot_scan';
 
+/// Background isolate entry point. Constructs every dependency from scratch
+/// (the main isolate's Riverpod container does NOT cross the isolate
+/// boundary) and runs the unified [ScanPipeline] so behaviour matches the
+/// foreground exactly — including auto-trade.
+///
+/// Every outcome (success, failure, no-credentials) is written as a
+/// [ScanRecord] so the user can audit the run from the in-app scan history,
+/// even if the device killed the worker before a notification could fire.
 @pragma('vm:entry-point')
 void backgroundCallbackDispatcher() {
   Workmanager().executeTask((task, inputData) async {
+    final startedAt = DateTime.now().millisecondsSinceEpoch;
+    final source = task == _kPeriodicTask
+        ? ScanSource.background
+        : ScanSource.manualNow;
     try {
       final creds = SecureCredentialStore.instance;
       final loaded = await creds.load();
-      if (loaded == null) return true; // Not configured yet — nothing to scan.
+      if (loaded == null) {
+        // Record so the user can see why background did nothing.
+        await ScanHistoryRepository.instance.add(ScanRecord(
+          id: 'scan-$startedAt',
+          startedAt: startedAt,
+          finishedAt: DateTime.now().millisecondsSinceEpoch,
+          source: source,
+          symbolsScanned: 0,
+          signals: const [],
+          autoTradeAttempted: false,
+          autoTradePlaced: const [],
+          autoTradeSkipped: const [],
+          autoTradeWarnings: const [],
+          error: 'No API credentials configured',
+        ));
+        return true;
+      }
       final api = BinanceApi(creds);
       final settings = await SettingsRepository.instance.load();
-      final scanner = MarketScanner(api, const ApexConfluenceStrategy());
-      final signals = await scanner.scan(
-        settings: settings,
+      // Paper mode requires the WebSocket-driven PaperBroker, which lives
+      // in the foreground isolate. Force-disable auto-trade for paper runs
+      // here — the scan + record + notification still fire, but trades
+      // wait for a foreground session.
+      final isPaper = settings.tradingMode == TradingMode.paper;
+      final pipeline = ScanPipeline(
+        scanner: MarketScanner(api, const ApexConfluenceStrategy()),
+        broker: TradingRepository(api),
+        journal: JournalRepository.instance,
+        history: ScanHistoryRepository.instance,
+        settingsRepo: SettingsRepository.instance,
+        notifications: NotificationService.instance,
+      );
+      // Lower parallelism in background — Workmanager budgets are tight on
+      // recent Android versions; we prefer "finishes" over "fast".
+      await pipeline.run(
+        source: source,
         parallelism: 2,
         perSymbolTimeout: const Duration(seconds: 25),
+        overrideAutoTradeEnabled: isPaper ? false : null,
       );
-      final high = signals.where((s) => s.confidence >= settings.minConfidence).take(5).toList();
-      for (var i = 0; i < high.length; i++) {
-        final s = high[i];
-        await NotificationService.instance.showSignal(
-          symbol: s.symbol,
-          side: s.side == SignalSide.long ? 'LONG' : 'SHORT',
-          confidence: s.confidence,
-          entry: s.plan.entry,
-          sl: s.plan.stopLoss,
-          tp1: s.plan.takeProfit1,
-          notifId: 2000 + i,
-        );
-      }
       return true;
-    } catch (e) {
-      debugPrint('Background scan failed: $e');
+    } catch (e, st) {
+      if (kDebugMode) debugPrint('Background scan crashed: $e\n$st');
+      // Log the crash itself so it's visible in scan history.
+      try {
+        await ScanHistoryRepository.instance.add(ScanRecord(
+          id: 'scan-$startedAt',
+          startedAt: startedAt,
+          finishedAt: DateTime.now().millisecondsSinceEpoch,
+          source: source,
+          symbolsScanned: 0,
+          signals: const [],
+          autoTradeAttempted: false,
+          autoTradePlaced: const [],
+          autoTradeSkipped: const [],
+          autoTradeWarnings: const [],
+          error: 'Worker crashed: $e',
+        ));
+      } catch (_) {/* best-effort */}
       return false; // WorkManager retries with backoff.
     }
   });

@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 
 import '../../core/theme.dart';
+import '../../data/models/scan_record.dart';
 import '../../data/repositories/settings_repository.dart';
 import '../../providers.dart';
 import '../../services/background_service.dart';
@@ -46,6 +49,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       if (enabled) {
         await BackgroundService.instance.enablePeriodic(
             intervalMinutes: next.backgroundScanIntervalMin);
+        // Don't make the user wait 15+ minutes to find out whether
+        // background actually works — fire a one-shot immediately so the
+        // next scan record proves the worker is reachable.
+        await BackgroundService.instance.runOnce();
       } else {
         await BackgroundService.instance.disablePeriodic();
       }
@@ -339,6 +346,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   child: const Text('Run a scan now'),
                 ),
               ),
+              const SizedBox(height: 8),
+              const _LastScanRow(),
               const SizedBox(height: 10),
               SizedBox(
                 width: double.infinity,
@@ -532,6 +541,66 @@ class _MarginFieldState extends State<_MarginField> {
           if (parsed != null && parsed > 0) widget.onChanged(parsed);
         },
       ),
+    );
+  }
+}
+
+/// Compact "last scan" row that lives at the bottom of the Background-scan
+/// card. Re-reads ScanHistoryRepository.mostRecent() each time the widget
+/// rebuilds — cheap (single SharedPreferences read) and keeps users from
+/// staring at stale state. Also exposes a tap-to-history shortcut.
+class _LastScanRow extends ConsumerWidget {
+  const _LastScanRow();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return FutureBuilder<ScanRecord?>(
+      future: ref.watch(scanHistoryRepoProvider).mostRecent(),
+      builder: (context, snap) {
+        final r = snap.data;
+        final fmt = DateFormat('MMM d HH:mm');
+        Color color;
+        String text;
+        if (r == null) {
+          color = ApexColors.textMuted;
+          text = 'No scans recorded yet';
+        } else if (r.error != null) {
+          color = ApexColors.bear;
+          text = 'Last scan failed: ${r.error}';
+        } else if (r.autoTradePlaced.isNotEmpty) {
+          color = ApexColors.bull;
+          text =
+              'Last scan ${fmt.format(DateTime.fromMillisecondsSinceEpoch(r.startedAt))}'
+              ' • ${r.signalCount} signals • ${r.autoTradePlaced.length} placed';
+        } else {
+          color = ApexColors.textMuted;
+          text =
+              'Last scan ${fmt.format(DateTime.fromMillisecondsSinceEpoch(r.startedAt))}'
+              ' • ${r.signalCount} signals';
+        }
+        return InkWell(
+          onTap: () => context.push('/scan-history'),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Row(
+              children: [
+                Icon(Icons.circle, size: 8, color: color),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    text,
+                    style: TextStyle(color: color, fontSize: 12.5),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const Icon(Icons.chevron_right,
+                    color: ApexColors.textMuted, size: 18),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }

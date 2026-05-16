@@ -6,12 +6,14 @@ import 'data/local/secure_credential_store.dart';
 import 'data/repositories/broker.dart';
 import 'data/repositories/journal_repository.dart';
 import 'data/repositories/paper_trading_repository.dart';
+import 'data/repositories/scan_history_repository.dart';
 import 'data/repositories/settings_repository.dart';
 import 'data/repositories/trading_repository.dart';
 import 'data/streams/mark_price_stream.dart';
 import 'data/streams/ticker_stream.dart';
 import 'data/streams/user_data_stream.dart';
 import 'domain/auto_trader.dart';
+import 'domain/scan_pipeline.dart';
 import 'domain/scanner.dart';
 import 'domain/strategy.dart';
 
@@ -88,6 +90,23 @@ final scannerProvider = Provider<MarketScanner>((ref) {
 
 final journalRepoProvider = Provider<JournalRepository>((ref) {
   return JournalRepository.instance;
+});
+
+final scanHistoryRepoProvider = Provider<ScanHistoryRepository>((ref) {
+  return ScanHistoryRepository.instance;
+});
+
+/// Unified scan pipeline shared by foreground UI and background workmanager
+/// callback. Owns the scan → auto-trade → persist → notify policy in one
+/// place so the two paths can't drift.
+final scanPipelineProvider = Provider<ScanPipeline>((ref) {
+  return ScanPipeline(
+    scanner: ref.watch(scannerProvider),
+    broker: ref.watch(tradingRepoProvider),
+    journal: ref.watch(journalRepoProvider),
+    history: ref.watch(scanHistoryRepoProvider),
+    settingsRepo: ref.watch(settingsRepoProvider),
+  );
 });
 
 final autoTraderProvider = Provider<AutoTrader>((ref) {
