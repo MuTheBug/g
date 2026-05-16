@@ -1,0 +1,343 @@
+//@version=5
+// =====================================================================
+// Apex Confluence Strategy (ACS) — TradingView port
+// Faithful Pine v5 port of the Apex Confluence Strategy used in the
+// apex_trader Flutter app. Same multi-timeframe filters, same eleven
+// confluence reasons with identical weights summing to 100, same ATR-based
+// SL and 1.5R / 2.5R / 4R take-profits with an equal-thirds quantity split.
+//
+// Defaults match the production StrategyConfig: HTF=4H (EMA50/200),
+// MTF=1H (EMA21/50), LTF=chart (EMA9/21), RSI/ATR/ADX=14, BB=20,2,
+// volume MA=20, ADX trending floor=22, volume surge floor=1.4×,
+// ATR SL multiplier=1.5, minConfidence=70, taker fee=0.04% per leg.
+//
+// Apply this script to the *LTF* (e.g. 15-minute BTCUSDT.P on Binance).
+// HTF / MTF series are fetched via request.security with
+// lookahead=barmerge.lookahead_off so the backtest does NOT repaint.
+// =====================================================================
+strategy(
+     title                 = "Apex Confluence Strategy",
+     shorttitle            = "ACS",
+     overlay               = true,
+     pyramiding            = 0,
+     process_orders_on_close= true,
+     calc_on_every_tick    = false,
+     default_qty_type      = strategy.percent_of_equity,
+     default_qty_value     = 5,
+     commission_type       = strategy.commission.percent,
+     commission_value      = 0.04,
+     initial_capital       = 10000)
+
+// ---------------- Inputs ----------------
+grpTF   = "Timeframes"
+htfTF   = input.timeframe("240", "HTF (bias)",      group=grpTF)
+mtfTF   = input.timeframe("60",  "MTF (direction)", group=grpTF)
+
+grpEma  = "EMA periods"
+htfFast = input.int(50,  "HTF EMA fast",  minval=2, group=grpEma)
+htfSlow = input.int(200, "HTF EMA slow",  minval=2, group=grpEma)
+mtfFast = input.int(21,  "MTF EMA fast",  minval=2, group=grpEma)
+mtfSlow = input.int(50,  "MTF EMA slow",  minval=2, group=grpEma)
+ltfFast = input.int(9,   "LTF EMA fast",  minval=2, group=grpEma)
+ltfSlow = input.int(21,  "LTF EMA slow",  minval=2, group=grpEma)
+
+grpInd  = "Indicator periods"
+rsiLen  = input.int(14, "RSI period",        minval=2, group=grpInd)
+atrLen  = input.int(14, "ATR period",        minval=2, group=grpInd)
+adxLen  = input.int(14, "ADX / DI period",   minval=2, group=grpInd)
+bbLen   = input.int(20, "BB period",         minval=2, group=grpInd)
+volLen  = input.int(20, "Volume MA period",  minval=2, group=grpInd)
+
+grpFilt = "Filters"
+minAdx  = input.float(22.0, "Min ADX (trending regime floor)", minval=0, group=grpFilt)
+maxAdx  = input.float(50.0, "Max ADX (avoid late-stage trend)", minval=0, group=grpFilt)
+minVol  = input.float(1.4,  "Min volume surge (x avg)",        minval=0, step=0.1, group=grpFilt)
+
+grpRisk = "Risk / R-multiples"
+atrSlMult = input.float(1.5, "ATR SL multiplier",              minval=0.1, step=0.1, group=grpRisk)
+tp1R      = input.float(1.5, "TP1 (R-multiple)",               minval=0.1, step=0.1, group=grpRisk)
+tp2R      = input.float(2.5, "TP2 (R-multiple)",               minval=0.1, step=0.1, group=grpRisk)
+tp3R      = input.float(4.0, "TP3 (R-multiple)",               minval=0.1, step=0.1, group=grpRisk)
+minConf   = input.int(70,    "Minimum confidence to fire (0..100)", minval=0, maxval=100, group=grpRisk)
+
+grpDiv  = "Divergence / swing"
+divLookback   = input.int(30, "Divergence lookback (bars)", minval=10, group=grpDiv)
+pivotStrength = input.int(3,  "Pivot strength (left/right bars)", minval=1, group=grpDiv)
+swingLookback = input.int(60, "Swing lookback (bars)", minval=10, group=grpDiv)
+
+grpDir  = "Direction"
+allowLongs  = input.bool(true,  "Allow longs",  group=grpDir)
+allowShorts = input.bool(true,  "Allow shorts", group=grpDir)
+
+// =====================================================================
+// HTF bias — EMA fast > EMA slow AND fast slope (3 bars) positive.
+// Mirrors Dart _htfBias(): up = emaFast > emaSlow AND emaFast > emaFast[3].
+// Uses non-repainting request.security (lookahead_off, last-bar value
+// becomes available only after the HTF candle closes).
+// =====================================================================
+htfFastEma   = request.security(syminfo.tickerid, htfTF, ta.ema(close, htfFast), lookahead=barmerge.lookahead_off)
+htfSlowEma   = request.security(syminfo.tickerid, htfTF, ta.ema(close, htfSlow), lookahead=barmerge.lookahead_off)
+htfFastEma3  = request.security(syminfo.tickerid, htfTF, ta.ema(close, htfFast)[3], lookahead=barmerge.lookahead_off)
+htfTrendUp   = not na(htfFastEma) and not na(htfSlowEma) and not na(htfFastEma3) and htfFastEma > htfSlowEma and htfFastEma > htfFastEma3
+htfTrendDn   = not na(htfFastEma) and not na(htfSlowEma) and not na(htfFastEma3) and htfFastEma < htfSlowEma and htfFastEma < htfFastEma3
+
+// MTF direction — EMA fast vs EMA slow only.
+mtfFastEma   = request.security(syminfo.tickerid, mtfTF, ta.ema(close, mtfFast), lookahead=barmerge.lookahead_off)
+mtfSlowEma   = request.security(syminfo.tickerid, mtfTF, ta.ema(close, mtfSlow), lookahead=barmerge.lookahead_off)
+mtfTrendUp   = not na(mtfFastEma) and not na(mtfSlowEma) and mtfFastEma > mtfSlowEma
+mtfTrendDn   = not na(mtfFastEma) and not na(mtfSlowEma) and mtfFastEma < mtfSlowEma
+
+biasLong  = htfTrendUp and mtfTrendUp
+biasShort = htfTrendDn and mtfTrendDn
+
+// =====================================================================
+// LTF indicators (on chart timeframe)
+// =====================================================================
+ltfFastEma   = ta.ema(close, ltfFast)
+ltfSlowEma   = ta.ema(close, ltfSlow)
+rsiVal       = ta.rsi(close, rsiLen)
+[macdLine, macdSig, macdHist] = ta.macd(close, 12, 26, 9)
+[bbMid, bbUpper, bbLower]      = ta.bb(close, bbLen, 2)
+atrVal       = ta.atr(atrLen)
+[diPlus, diMinus, adxVal]      = ta.dmi(adxLen, adxLen)
+obvVal       = ta.obv
+
+// StochRSI (14/14/3/3): SMA-smoothed K and D over Stoch(RSI).
+stochRsiRaw  = ta.stoch(rsiVal, rsiVal, rsiVal, 14)
+stochK       = ta.sma(stochRsiRaw, 3)
+stochD       = ta.sma(stochK, 3)
+
+// Session-anchored VWAP — closest Pine equivalent to the cumulative-from-
+// window-start VWAP used in the Dart engine.
+vwapVal      = ta.vwap
+
+// Regime filter — trending if ADX in [minAdx, maxAdx).
+isTrending   = not na(adxVal) and adxVal >= minAdx and adxVal < maxAdx
+
+// =====================================================================
+// 11 confluence reasons (same labels & weights as the Dart engine).
+// Weights sum to 100, so the % score is the sum of passing weights.
+// =====================================================================
+side_isLong = biasLong  // evaluated only when biasLong xor biasShort holds
+side_isShort = biasShort
+
+// 1) LTF EMA stack — weight 12
+ltfEmaUp = ltfFastEma > ltfSlowEma
+r1_long  = ltfEmaUp
+r1_short = not ltfEmaUp
+
+// 2) RSI position — weight 10. LONG: 45..68. SHORT: 32..55.
+r2_long  = rsiVal >= 45 and rsiVal <= 68
+r2_short = rsiVal >= 32 and rsiVal <= 55
+
+// 3) MACD momentum — weight 12. Hist positive & rising (long) / negative & falling.
+r3_long  = not na(macdHist) and not na(macdHist[1]) and macdHist > 0 and macdHist > macdHist[1]
+r3_short = not na(macdHist) and not na(macdHist[1]) and macdHist < 0 and macdHist < macdHist[1]
+
+// 4) Volume surge — weight 10. Latest volume / SMA(volume[1], 20) >= minVol.
+volAvg   = ta.sma(volume[1], volLen)
+volSurge = na(volAvg) or volAvg == 0 ? 1.0 : volume / volAvg
+r4_pass  = volSurge >= minVol
+
+// 5) BB position — weight 8. LONG: above mid, below upper. SHORT: below mid, above lower.
+r5_long  = not na(bbMid) and close > bbMid and close < bbUpper
+r5_short = not na(bbMid) and close < bbMid and close > bbLower
+
+// 6) VWAP side — weight 8.
+r6_long  = not na(vwapVal) and close > vwapVal
+r6_short = not na(vwapVal) and close < vwapVal
+
+// 7) StochRSI cross — weight 8.
+// LONG: K crossed above D (K[1] <= D[1] & K > D) and K < 80.
+// SHORT: K crossed below D (K[1] >= D[1] & K < D) and K > 20.
+stochValid = not na(stochK) and not na(stochD) and not na(stochK[1]) and not na(stochD[1])
+r7_long  = stochValid and stochK[1] <= stochD[1] and stochK > stochD and stochK < 80
+r7_short = stochValid and stochK[1] >= stochD[1] and stochK < stochD and stochK > 20
+
+// 8) RSI divergence — weight 10.
+// Bullish: lower-low in price AND higher-low in RSI on consecutive pivot lows
+//          within `divLookback` bars (mirrors Indicators.rsiDivergence).
+// Bearish: higher-high in price AND lower-high in RSI.
+pivLow  = ta.pivotlow(close, pivotStrength, pivotStrength)
+pivHigh = ta.pivothigh(close, pivotStrength, pivotStrength)
+
+var float lastLowPrice1  = na
+var float lastLowPrice2  = na
+var float lastLowRsi1    = na
+var float lastLowRsi2    = na
+var int   lastLowIdx1    = na
+var int   lastLowIdx2    = na
+if not na(pivLow)
+    lastLowPrice1 := lastLowPrice2
+    lastLowRsi1   := lastLowRsi2
+    lastLowIdx1   := lastLowIdx2
+    lastLowPrice2 := pivLow
+    lastLowRsi2   := rsiVal[pivotStrength]
+    lastLowIdx2   := bar_index - pivotStrength
+
+var float lastHighPrice1 = na
+var float lastHighPrice2 = na
+var float lastHighRsi1   = na
+var float lastHighRsi2   = na
+var int   lastHighIdx1   = na
+var int   lastHighIdx2   = na
+if not na(pivHigh)
+    lastHighPrice1 := lastHighPrice2
+    lastHighRsi1   := lastHighRsi2
+    lastHighIdx1   := lastHighIdx2
+    lastHighPrice2 := pivHigh
+    lastHighRsi2   := rsiVal[pivotStrength]
+    lastHighIdx2   := bar_index - pivotStrength
+
+bullDiv = not na(lastLowPrice1) and not na(lastLowPrice2) and not na(lastLowRsi1) and not na(lastLowRsi2) and not na(lastLowIdx1) and (bar_index - lastLowIdx1) <= divLookback + pivotStrength and lastLowPrice2 < lastLowPrice1 and lastLowRsi2 > lastLowRsi1
+bearDiv = not na(lastHighPrice1) and not na(lastHighPrice2) and not na(lastHighRsi1) and not na(lastHighRsi2) and not na(lastHighIdx1) and (bar_index - lastHighIdx1) <= divLookback + pivotStrength and lastHighPrice2 > lastHighPrice1 and lastHighRsi2 < lastHighRsi1
+
+r8_long  = bullDiv
+r8_short = bearDiv
+
+// 9) OBV alignment — weight 6. OBV vs OBV[5].
+r9_long  = not na(obvVal[5]) and obvVal > obvVal[5]
+r9_short = not na(obvVal[5]) and obvVal < obvVal[5]
+
+// 10) Candle pattern — weight 8. Engulf OR strong-body with wick rejection.
+isBull   = close >= open
+bodyAbs  = math.abs(close - open)
+rng      = high - low
+upperWick = high - math.max(open, close)
+lowerWick = math.min(open, close) - low
+bodyDom   = rng > 0 and bodyAbs > rng * 0.55
+
+bullEngulf = isBull and not (close[1] >= open[1]) and close >= open[1] and open <= close[1]
+bullStrong = isBull and bodyDom and lowerWick > bodyAbs * 0.3
+bearEngulf = not isBull and (close[1] >= open[1]) and close <= open[1] and open >= close[1]
+bearStrong = not isBull and bodyDom and upperWick > bodyAbs * 0.3
+
+r10_long  = bullEngulf or bullStrong
+r10_short = bearEngulf or bearStrong
+
+// 11) Headroom to swing — weight 8.
+// Track the most recent 5-bar fractal pivot high (resistance) / low (support).
+pivResistance = ta.pivothigh(high, 2, 2)
+pivSupport    = ta.pivotlow(low,  2, 2)
+var float lastResistance = na
+var float lastSupport    = na
+if not na(pivResistance)
+    lastResistance := pivResistance
+if not na(pivSupport)
+    lastSupport := pivSupport
+
+// Mirror the Dart swingLookback by resetting if the recorded pivot is too old.
+var int lastResIdx = na
+var int lastSupIdx = na
+if not na(pivResistance)
+    lastResIdx := bar_index - 2
+if not na(pivSupport)
+    lastSupIdx := bar_index - 2
+resOk = not na(lastResIdx) and (bar_index - lastResIdx) <= swingLookback
+supOk = not na(lastSupIdx) and (bar_index - lastSupIdx) <= swingLookback
+
+r11_long  = (not resOk) or (lastResistance - close > atrVal)
+r11_short = (not supOk) or (close - lastSupport > atrVal)
+
+// =====================================================================
+// Confidence score (weights sum to 100 → score is the sum of passers)
+// =====================================================================
+score(r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11) =>
+    (r1 ? 12 : 0) + (r2 ? 10 : 0) + (r3 ? 12 : 0) + (r4 ? 10 : 0) +
+      (r5 ? 8 : 0) + (r6 ? 8 : 0) + (r7 ? 8 : 0) + (r8 ? 10 : 0) +
+      (r9 ? 6 : 0) + (r10 ? 8 : 0) + (r11 ? 8 : 0)
+
+confLong  = score(r1_long,  r2_long,  r3_long,  r4_pass, r5_long,  r6_long,  r7_long,  r8_long,  r9_long,  r10_long,  r11_long)
+confShort = score(r1_short, r2_short, r3_short, r4_pass, r5_short, r6_short, r7_short, r8_short, r9_short, r10_short, r11_short)
+
+// =====================================================================
+// Entry / exit
+// =====================================================================
+inFlat   = strategy.position_size == 0
+canLong  = allowLongs and biasLong and isTrending and confLong  >= minConf and inFlat
+canShort = allowShorts and biasShort and isTrending and confShort >= minConf and inFlat
+
+// Risk plan (computed on the bar that fires the entry; SL/TPs are valid
+// for the lifetime of the position).
+entryRef = close
+slLong   = entryRef - atrSlMult * atrVal
+slShort  = entryRef + atrSlMult * atrVal
+rLong    = entryRef - slLong   // > 0
+rShort   = slShort - entryRef  // > 0
+tp1Long  = entryRef + tp1R * rLong
+tp2Long  = entryRef + tp2R * rLong
+tp3Long  = entryRef + tp3R * rLong
+tp1Short = entryRef - tp1R * rShort
+tp2Short = entryRef - tp2R * rShort
+tp3Short = entryRef - tp3R * rShort
+
+// Persist the active plan across bars so exits can reference it.
+var float pSl  = na
+var float pTp1 = na
+var float pTp2 = na
+var float pTp3 = na
+
+if canLong
+    pSl  := slLong
+    pTp1 := tp1Long
+    pTp2 := tp2Long
+    pTp3 := tp3Long
+    strategy.entry("LONG", strategy.long)
+if canShort
+    pSl  := slShort
+    pTp1 := tp1Short
+    pTp2 := tp2Short
+    pTp3 := tp3Short
+    strategy.entry("SHORT", strategy.short)
+
+// Equal-thirds exit:
+//   TP1 = 33.34% of original  → leaves 66.66%
+//   TP2 = 50% of remaining    → 33.33% of original closes; leaves 33.33%
+//   TP3 = 100% of remaining   → 33.33% of original closes
+// All three exits share the same SL so any stop-out cancels the others.
+if strategy.position_size > 0
+    strategy.exit("TP1", from_entry="LONG", qty_percent=33.34, limit=pTp1, stop=pSl)
+    strategy.exit("TP2", from_entry="LONG", qty_percent=50.0,  limit=pTp2, stop=pSl)
+    strategy.exit("TP3", from_entry="LONG",                   limit=pTp3, stop=pSl)
+if strategy.position_size < 0
+    strategy.exit("TP1", from_entry="SHORT", qty_percent=33.34, limit=pTp1, stop=pSl)
+    strategy.exit("TP2", from_entry="SHORT", qty_percent=50.0,  limit=pTp2, stop=pSl)
+    strategy.exit("TP3", from_entry="SHORT",                   limit=pTp3, stop=pSl)
+
+// =====================================================================
+// Visuals — HTF / MTF / LTF EMAs and the active trade plan.
+// =====================================================================
+plot(ltfFastEma, "LTF EMA fast", color=color.new(color.orange, 0))
+plot(ltfSlowEma, "LTF EMA slow", color=color.new(color.aqua, 0))
+plot(htfFastEma, "HTF EMA fast", color=color.new(color.fuchsia, 30), linewidth=2)
+plot(htfSlowEma, "HTF EMA slow", color=color.new(color.purple, 30), linewidth=2)
+plot(vwapVal,    "VWAP",         color=color.new(color.yellow, 50))
+
+plot(strategy.position_size != 0 ? pSl  : na, "SL",  color=color.new(color.red,   0), style=plot.style_linebr)
+plot(strategy.position_size != 0 ? pTp1 : na, "TP1", color=color.new(color.green, 0), style=plot.style_linebr)
+plot(strategy.position_size != 0 ? pTp2 : na, "TP2", color=color.new(color.green, 30), style=plot.style_linebr)
+plot(strategy.position_size != 0 ? pTp3 : na, "TP3", color=color.new(color.green, 60), style=plot.style_linebr)
+
+// Optional confidence-score label on the entry bar — helpful when tuning.
+if canLong
+    label.new(bar_index, low,  text="L " + str.tostring(confLong)  + "%", style=label.style_label_up,   color=color.new(color.green, 30), textcolor=color.white, size=size.small)
+if canShort
+    label.new(bar_index, high, text="S " + str.tostring(confShort) + "%", style=label.style_label_down, color=color.new(color.red,   30), textcolor=color.white, size=size.small)
+
+// =====================================================================
+// Dashboard — quick read of the live state.
+// =====================================================================
+var table dash = table.new(position.top_right, 2, 6, border_width=1)
+if barstate.islast
+    table.cell(dash, 0, 0, "HTF bias",   bgcolor=color.new(color.gray, 60), text_color=color.white)
+    table.cell(dash, 1, 0, htfTrendUp ? "UP" : htfTrendDn ? "DOWN" : "—", text_color=color.white)
+    table.cell(dash, 0, 1, "MTF dir",    bgcolor=color.new(color.gray, 60), text_color=color.white)
+    table.cell(dash, 1, 1, mtfTrendUp ? "UP" : mtfTrendDn ? "DOWN" : "—", text_color=color.white)
+    table.cell(dash, 0, 2, "ADX",        bgcolor=color.new(color.gray, 60), text_color=color.white)
+    table.cell(dash, 1, 2, str.tostring(adxVal, "#.0") + (isTrending ? " ✓" : " ✗"), text_color=color.white)
+    table.cell(dash, 0, 3, "Vol surge",  bgcolor=color.new(color.gray, 60), text_color=color.white)
+    table.cell(dash, 1, 3, str.tostring(volSurge, "#.00") + "×",            text_color=color.white)
+    table.cell(dash, 0, 4, "Conf LONG",  bgcolor=color.new(color.gray, 60), text_color=color.white)
+    table.cell(dash, 1, 4, str.tostring(confLong)  + "%", text_color=confLong  >= minConf ? color.green : color.gray)
+    table.cell(dash, 0, 5, "Conf SHORT", bgcolor=color.new(color.gray, 60), text_color=color.white)
+    table.cell(dash, 1, 5, str.tostring(confShort) + "%", text_color=confShort >= minConf ? color.green : color.gray)
