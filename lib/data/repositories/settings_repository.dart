@@ -23,6 +23,8 @@ class AppSettings {
     this.autoTradeMinConfidence = 80,
     this.tradingMode = TradingMode.live,
     this.paperStartingBalance = 10000,
+    this.validatedSymbols = const <String>{},
+    this.validatedSymbolsEnabled = false,
   });
 
   final int scanLimit;
@@ -49,6 +51,12 @@ class AppSettings {
   final TradingMode tradingMode;
   final double paperStartingBalance;
 
+  // Multi-symbol-backtest-driven whitelist. When [validatedSymbolsEnabled]
+  // is true and the set is non-empty, the scanner + auto-trader skip any
+  // symbol outside the set.
+  final Set<String> validatedSymbols;
+  final bool validatedSymbolsEnabled;
+
   AppSettings copyWith({
     int? scanLimit,
     int? minConfidence,
@@ -69,6 +77,8 @@ class AppSettings {
     int? autoTradeMinConfidence,
     TradingMode? tradingMode,
     double? paperStartingBalance,
+    Set<String>? validatedSymbols,
+    bool? validatedSymbolsEnabled,
   }) =>
       AppSettings(
         scanLimit: scanLimit ?? this.scanLimit,
@@ -90,6 +100,9 @@ class AppSettings {
         autoTradeMinConfidence: autoTradeMinConfidence ?? this.autoTradeMinConfidence,
         tradingMode: tradingMode ?? this.tradingMode,
         paperStartingBalance: paperStartingBalance ?? this.paperStartingBalance,
+        validatedSymbols: validatedSymbols ?? this.validatedSymbols,
+        validatedSymbolsEnabled:
+            validatedSymbolsEnabled ?? this.validatedSymbolsEnabled,
       );
 }
 
@@ -116,6 +129,8 @@ class SettingsRepository {
   static const _kAtMinConf = 'autoTradeMinConfidence';
   static const _kTradingMode = 'tradingMode';
   static const _kPaperBal = 'paperStartingBalance';
+  static const _kValidated = 'validatedSymbols';
+  static const _kValidatedOn = 'validatedSymbolsEnabled';
 
   Future<SharedPreferences> get _prefs async => SharedPreferences.getInstance();
 
@@ -144,6 +159,9 @@ class SettingsRepository {
             ? TradingMode.paper
             : TradingMode.live,
         paperStartingBalance: p.getDouble(_kPaperBal) ?? 10000,
+        validatedSymbols: (p.getStringList(_kValidated) ?? const <String>[])
+            .toSet(),
+        validatedSymbolsEnabled: p.getBool(_kValidatedOn) ?? false,
       );
     } catch (_) {
       return const AppSettings();
@@ -173,6 +191,8 @@ class SettingsRepository {
         p.setInt(_kAtMinConf, s.autoTradeMinConfidence),
         p.setString(_kTradingMode, s.tradingMode == TradingMode.paper ? 'paper' : 'live'),
         p.setDouble(_kPaperBal, s.paperStartingBalance),
+        p.setStringList(_kValidated, s.validatedSymbols.toList()),
+        p.setBool(_kValidatedOn, s.validatedSymbolsEnabled),
       ]);
     } catch (_) {/* tolerate disk failure */}
   }

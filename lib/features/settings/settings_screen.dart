@@ -244,6 +244,40 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ),
         const SizedBox(height: 10),
 
+        // -------- Validated symbols (Symbol Sweep gate) --------
+        ApexCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Validated symbols',
+                  style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 4),
+              const Text(
+                'Restrict scanner + auto-trade to symbols that passed the latest '
+                'multi-symbol backtest sweep. The set is updated by the Symbol '
+                'Sweep screen.',
+                style: TextStyle(color: ApexColors.textMuted, fontSize: 12.5),
+              ),
+              const SizedBox(height: 6),
+              SwitchListTile(
+                value: s.validatedSymbolsEnabled,
+                onChanged: (v) => notifier
+                    .update((st) => st.copyWith(validatedSymbolsEnabled: v)),
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Restrict scanner to validated symbols'),
+                subtitle: Text(
+                  s.validatedSymbols.isEmpty
+                      ? 'Set is empty — run a sweep first.'
+                      : '${s.validatedSymbols.length} symbols in the set',
+                  style:
+                      const TextStyle(color: ApexColors.textMuted, fontSize: 12),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+
         // -------- Auto-trade --------
         ApexCard(
           child: Column(

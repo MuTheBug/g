@@ -7,8 +7,10 @@ import 'features/about/about_screen.dart';
 import 'features/backtest/backtest_screen.dart';
 import 'features/biometric/biometric_gate.dart';
 import 'features/diagnostics/test_orders_screen.dart';
+import 'features/equity/equity_dashboard_screen.dart';
 import 'features/journal/journal_screen.dart';
 import 'features/scan_history/scan_history_screen.dart';
+import 'features/symbol_sweep/sweep_screen.dart';
 import 'features/positions/positions_screen.dart';
 import 'features/scanner/scanner_screen.dart';
 import 'features/settings/settings_screen.dart';
@@ -106,6 +108,8 @@ class _ApexAppState extends ConsumerState<ApexApp> {
             onJournalTap: () => ctx.push('/journal'),
             onBacktestTap: () => ctx.push('/backtest'),
             onScanHistoryTap: () => ctx.push('/scan-history'),
+            onSymbolSweepTap: () => ctx.push('/symbol-sweep'),
+            onEquityTap: () => ctx.push('/equity'),
           ),
         ),
         GoRoute(
@@ -169,6 +173,14 @@ class _ApexAppState extends ConsumerState<ApexApp> {
         GoRoute(
           path: '/scan-history',
           builder: (_, __) => const ScanHistoryScreen(),
+        ),
+        GoRoute(
+          path: '/symbol-sweep',
+          builder: (_, __) => const SweepScreen(),
+        ),
+        GoRoute(
+          path: '/equity',
+          builder: (_, __) => const EquityDashboardScreen(),
         ),
       ],
     );

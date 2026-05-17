@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app.dart';
+import 'data/local/database.dart';
 import 'data/local/secure_credential_store.dart';
 import 'services/background_service.dart';
 import 'services/notification_service.dart';
@@ -27,6 +28,11 @@ Future<void> main() async {
     debugPrint('UNCAUGHT: $error\n$stack');
     return true; // signal handled — don't crash the engine
   };
+
+  // Open the local SQLite database before any repository read. The one-time
+  // SharedPreferences → SQLite import happens inside open() so older builds
+  // upgrade transparently.
+  await DatabaseService.instance.ensureInitialized();
 
   // Eagerly load credentials so the router knows the start destination
   // synchronously on first frame.

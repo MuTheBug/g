@@ -1,8 +1,10 @@
 import 'package:flutter/foundation.dart';
 
 import '../data/api/binance_api.dart';
+import '../data/models/equity_snapshot.dart';
 import '../data/models/scan_record.dart';
 import '../data/repositories/broker.dart';
+import '../data/repositories/equity_snapshot_repository.dart';
 import '../data/repositories/journal_repository.dart';
 import '../data/repositories/scan_history_repository.dart';
 import '../data/repositories/settings_repository.dart';
@@ -129,6 +131,26 @@ class ScanPipeline {
     );
 
     await _history.add(record);
+
+    // Equity snapshot at the end of every scan — cheap (one extra read
+    // against the broker + one INSERT) and gives the dashboard a regular
+    // cadence of points to chart. Failures don't block the scan record.
+    if (error == null) {
+      try {
+        final acct = await _broker.getAccount();
+        final positions = await _broker.getOpenPositions();
+        await EquitySnapshotRepository.instance.add(EquitySnapshot(
+          takenAt: finishedAt,
+          walletBalance: acct.totalWalletBalance,
+          unrealizedPnl: acct.totalUnrealizedProfit,
+          marginBalance: acct.totalMarginBalance,
+          openPositions: positions.length,
+          paper: settings.tradingMode == TradingMode.paper,
+        ));
+      } catch (e) {
+        if (kDebugMode) debugPrint('equity snapshot failed: $e');
+      }
+    }
 
     if (notify) {
       await _sendNotifications(record);

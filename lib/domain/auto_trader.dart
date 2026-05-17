@@ -46,8 +46,22 @@ class AutoTrader {
       return AutoTradeReport(placed: placed, skipped: skipped, warnings: warnings);
     }
 
+    // Validated-symbols whitelist gate. When the toggle is off (or the set
+    // is empty), this is a no-op.
+    final whitelist = settings.validatedSymbolsEnabled &&
+            settings.validatedSymbols.isNotEmpty
+        ? settings.validatedSymbols
+        : null;
+    final gated = whitelist == null
+        ? ranked
+        : ranked.where((s) {
+            if (whitelist.contains(s.symbol)) return true;
+            skipped.add('${s.symbol}: not in validated symbols');
+            return false;
+          }).toList();
+
     final candidates =
-        ranked.where((s) => s.confidence >= settings.autoTradeMinConfidence).toList();
+        gated.where((s) => s.confidence >= settings.autoTradeMinConfidence).toList();
     if (candidates.isEmpty) {
       return AutoTradeReport(placed: placed, skipped: skipped, warnings: warnings);
     }

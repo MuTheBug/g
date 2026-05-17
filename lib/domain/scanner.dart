@@ -49,9 +49,16 @@ class MarketScanner {
       return const [];
     }
 
+    // Apply the validated-symbols gate ahead of the volume sort so the
+    // scanner only considers the user-curated set when the toggle is on.
+    final validatedGate = settings.validatedSymbolsEnabled &&
+            settings.validatedSymbols.isNotEmpty
+        ? settings.validatedSymbols
+        : null;
     final filtered = tickers
         .where((t) => t.symbol.endsWith('USDT'))
         .where((t) => !settings.excludedSymbols.contains(t.symbol))
+        .where((t) => validatedGate == null || validatedGate.contains(t.symbol))
         .toList()
       ..sort((a, b) => b.quoteVolume.compareTo(a.quoteVolume));
 
