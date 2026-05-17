@@ -1,7 +1,12 @@
+import 'dart:async';
 import 'dart:math' as math;
+
+import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 
 import '../data/api/binance_api.dart';
 import '../data/models/backtest_result.dart';
+import '../data/models/candle.dart';
 import '../data/models/symbol_performance.dart';
 import '../data/models/timeframe.dart';
 import 'backtest_engine.dart';
@@ -45,6 +50,7 @@ class SweepConfig {
     required this.leverage,
     this.minTrades = 8,
     this.minProfitFactor = 1.0,
+    this.interCallDelay = const Duration(milliseconds: 300),
   });
 
   final List<String> symbols;
@@ -55,15 +61,25 @@ class SweepConfig {
   final int leverage;
   final int minTrades;
   final double minProfitFactor;
+
+  /// Sleep between every Binance REST call. Default 300 ms gives ~200
+  /// calls/min headroom under the 2400-weight-per-minute ceiling for
+  /// `klines limit=1500` (weight ~10 each → ~2000 weight/min consumed).
+  final Duration interCallDelay;
 }
 
 /// Runs the existing [BacktestEngine] across every (symbol × LTF) pair,
 /// scores each result with a composite metric, picks the best LTF per
 /// symbol, and marks symbols that don't beat the thresholds as excluded.
 ///
-/// HTF/MTF auto-derive from LTF — there's no point letting the user
-/// configure them per symbol; the strategy's confluence layers assume a
-/// 1:~4 ratio between adjacent timeframes (LTF 15m → MTF 1h → HTF 4h).
+/// Rate-limit awareness lives entirely in this layer:
+///  - One kline fetch per `(symbol, timeframe)` per sweep — cached and
+///    reused across LTF candidates that share the same HTF/MTF.
+///  - 418/429/-1003 responses trigger exponential-backoff retry rather
+///    than silently failing every subsequent call (the symptom the user
+///    hit at 50 symbols).
+///  - A configurable inter-call delay keeps us under the per-minute
+///    request-weight budget even on a 300-symbol sweep.
 class BacktestSweeper {
   BacktestSweeper({required BinanceApi api}) : _api = api;
   final BinanceApi _api;
@@ -85,7 +101,7 @@ class BacktestSweeper {
     }
   }
 
-  /// Composite score the user picked:
+  /// Composite score:
   ///   profit_factor × win_rate × sqrt(trade_count) − max_drawdown_pct × 0.01
   /// Returns `double.negativeInfinity` for rejected results so they sort
   /// below any valid candidate.
@@ -100,8 +116,6 @@ class BacktestSweeper {
         r.maxDrawdownPct * 0.01;
   }
 
-  /// Why a per-LTF result is unusable. Returned alongside the score so the
-  /// UI can show "excluded — only 3 trades" instead of a silent rejection.
   static String? rejectionReason(BacktestResult r,
       {int minTrades = 8, double minProfitFactor = 1.0}) {
     if (r.totalTrades == 0) return 'no signals';
@@ -129,14 +143,49 @@ class BacktestSweeper {
     for (var si = 0; si < cfg.symbols.length; si++) {
       if (cancelled?.call() ?? false) break;
       final symbol = cfg.symbols[si];
+
+      // Compute the set of unique timeframes this symbol's sweep needs
+      // (LTF + the auto-derived MTF/HTF per LTF, deduped). Fetch each
+      // ONCE with backoff and cache for the (symbol, LTF) iterations
+      // below — this is the dominant rate-limit win.
+      final tfs = <Timeframe>{};
+      for (final ltf in cfg.ltfCandidates) {
+        final pair = tfPairing(ltf);
+        tfs.addAll([ltf, pair.mtf, pair.htf]);
+      }
+      final cache = <Timeframe, List<Candle>>{};
+      String? prefetchError;
+      for (final tf in tfs) {
+        if (cancelled?.call() ?? false) break;
+        try {
+          cache[tf] = await _fetchKlinesWithBackoff(symbol, tf);
+        } catch (e) {
+          // Surface the first real error so the user can tell rate-limit
+          // from invalid-symbol from network. We still try the remaining
+          // timeframes — some may succeed and a partial cache is fine.
+          prefetchError ??= _humanError(e);
+          if (kDebugMode) debugPrint('prefetch $symbol/${tf.code}: $e');
+        }
+        await Future<void>.delayed(cfg.interCallDelay);
+      }
+
       BacktestResult? bestResult;
       Timeframe? bestLtf;
       double bestScore = double.negativeInfinity;
+      String? lastEngineError;
 
       for (var li = 0; li < cfg.ltfCandidates.length; li++) {
         if (cancelled?.call() ?? false) break;
         final ltf = cfg.ltfCandidates[li];
         final pair = tfPairing(ltf);
+        // If any of the three timeframes for this LTF didn't make it into
+        // cache, skip — the engine would just refetch and likely fail
+        // for the same reason.
+        if (!cache.containsKey(ltf) ||
+            !cache.containsKey(pair.mtf) ||
+            !cache.containsKey(pair.htf)) {
+          continue;
+        }
         try {
           final r = await engine.run(
             BacktestConfig(
@@ -150,6 +199,7 @@ class BacktestSweeper {
               marginPerTradeUsdt: cfg.marginPerTradeUsdt,
               leverage: cfg.leverage,
             ),
+            cachedCandles: cache,
             onProgress: (p, stage) {
               onProgress?.call(SweepProgress(
                 symbol: symbol,
@@ -170,9 +220,9 @@ class BacktestSweeper {
             bestResult = r;
             bestLtf = ltf;
           }
-        } catch (_) {
-          // One (symbol, LTF) failure — almost always a kline-fetch problem
-          // for an illiquid pair. Skip; the other LTFs may still pass.
+        } catch (e) {
+          lastEngineError = _humanError(e);
+          if (kDebugMode) debugPrint('engine $symbol/${ltf.code}: $e');
         }
       }
 
@@ -199,6 +249,9 @@ class BacktestSweeper {
           samplePeriodMs: cfg.lookbackDays * 24 * 60 * 60 * 1000,
         ));
       } else {
+        // Use whichever error we captured — prefetch failure is the most
+        // informative, engine failure next, then a generic fallback.
+        final reason = prefetchError ?? lastEngineError ?? 'no kline data';
         out.add(SymbolPerformance(
           symbol: symbol,
           bestHtf: '-',
@@ -211,12 +264,63 @@ class BacktestSweeper {
           maxDrawdownPct: 0,
           compositeScore: 0,
           validated: false,
-          excludedReason: 'no kline data',
+          excludedReason: reason,
           lastValidatedAt: DateTime.now().millisecondsSinceEpoch,
           samplePeriodMs: cfg.lookbackDays * 24 * 60 * 60 * 1000,
         ));
       }
     }
     return out;
+  }
+
+  /// Fetch klines for one (symbol, timeframe) with retry on rate-limit
+  /// responses. Anything else (network errors, invalid symbol) propagates
+  /// after one attempt — those aren't fixed by waiting.
+  Future<List<Candle>> _fetchKlinesWithBackoff(
+      String symbol, Timeframe tf) async {
+    const maxAttempts = 4;
+    for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await _api.getCandles(symbol, tf, limit: 1500);
+      } on DioException catch (e) {
+        if (!_isRateLimit(e) || attempt == maxAttempts) rethrow;
+        // Exponential backoff: 5 s, 15 s, 45 s.
+        final delaySec = 5 * math.pow(3, attempt - 1).toInt();
+        if (kDebugMode) {
+          debugPrint(
+              'Rate-limited on $symbol/${tf.code}; sleeping ${delaySec}s '
+              '(attempt $attempt/$maxAttempts)');
+        }
+        await Future<void>.delayed(Duration(seconds: delaySec));
+      }
+    }
+    // Unreachable — the loop either returns or rethrows.
+    throw StateError('unreachable');
+  }
+
+  bool _isRateLimit(DioException e) {
+    final status = e.response?.statusCode;
+    if (status == 418 || status == 429) return true;
+    final body = e.response?.data;
+    if (body is Map && body['code'] is int) {
+      final code = body['code'] as int;
+      if (code == -1003 || code == -1015) return true;
+    }
+    return false;
+  }
+
+  /// Human-readable error string for [SymbolPerformance.excludedReason].
+  /// Strips Dio stack noise and surfaces rate-limit / bad-symbol clearly.
+  String _humanError(Object e) {
+    if (e is DioException) {
+      if (_isRateLimit(e)) return 'rate limited (Binance ban active)';
+      final body = e.response?.data;
+      if (body is Map && body['msg'] is String) return body['msg'] as String;
+      final status = e.response?.statusCode;
+      if (status != null) return 'HTTP $status';
+      return e.message ?? 'network error';
+    }
+    final s = e.toString();
+    return s.length > 80 ? s.substring(0, 80) : s;
   }
 }

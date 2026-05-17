@@ -20,7 +20,7 @@ class _SweepScreenState extends ConsumerState<SweepScreen> {
   final _balanceCtrl = TextEditingController(text: '10000');
   final _marginCtrl = TextEditingController(text: '50');
   int _leverage = 5;
-  int _topN = 20;
+  int _topN = 30;
   int _lookbackDays = 30;
   int _minTrades = 8;
   double _minPf = 1.0;
@@ -168,14 +168,25 @@ class _SweepScreenState extends ConsumerState<SweepScreen> {
             Text('Top N: $_topN',
                 style: const TextStyle(color: ApexColors.textMuted)),
             Slider(
-              value: _topN.toDouble(),
+              value: _topN.toDouble().clamp(5, 300),
               min: 5,
-              max: 50,
-              divisions: 45,
+              max: 300,
+              divisions: 59,
               onChanged: running
                   ? null
                   : (v) => setState(() => _topN = v.round()),
             ),
+            if (_topN > 100)
+              Padding(
+                padding: const EdgeInsets.only(top: 2, bottom: 6),
+                child: Text(
+                  'Estimated runtime: ${_estimateMinutes(_topN, _ltfs.length)} min. '
+                  'The sweep auto-retries when Binance rate-limits; long pauses '
+                  'between symbols are expected.',
+                  style: const TextStyle(
+                      color: ApexColors.textMuted, fontSize: 11),
+                ),
+              ),
           ],
           const SizedBox(height: 4),
           const Text('LTF candidates (one per symbol picked):',
@@ -286,6 +297,15 @@ class _SweepScreenState extends ConsumerState<SweepScreen> {
         ],
       ),
     );
+  }
+
+  /// Rough wall-clock estimate. Per-symbol cost is dominated by:
+  ///   ~N unique timeframe fetches × ~120 ms throttle + ~1 s engine work
+  /// where N is roughly 3 for 1 LTF and ~5 for 3+ LTFs (HTF/MTF reuse).
+  int _estimateMinutes(int symbols, int ltfCount) {
+    final perSymbolSec = 1 + 0.6 * (ltfCount + 2);
+    final totalSec = symbols * perSymbolSec;
+    return (totalSec / 60).ceil();
   }
 
   Widget _progress(SweepState s) {

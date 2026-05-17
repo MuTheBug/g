@@ -117,13 +117,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               Text('Symbols per scan: ${s.scanLimit}',
                   style: const TextStyle(color: ApexColors.textMuted)),
               Slider(
-                value: s.scanLimit.toDouble(),
+                value: s.scanLimit.toDouble().clamp(10, 300),
                 min: 10,
-                max: 100,
-                divisions: 18,
+                max: 300,
+                divisions: 58,
                 onChanged: (v) =>
-                    notifier.update((st) => st.copyWith(scanLimit: v.round().clamp(10, 100))),
+                    notifier.update((st) => st.copyWith(scanLimit: v.round().clamp(10, 300))),
               ),
+              if (s.scanLimit > 150)
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 4),
+                  child: Text(
+                    'Large scans take longer and may hit Binance rate limits. '
+                    'Failed symbols silently skip; lower the count if results '
+                    'look sparse.',
+                    style: TextStyle(color: ApexColors.textMuted, fontSize: 11),
+                  ),
+                ),
               Text('Min confidence: ${s.minConfidence}%',
                   style: const TextStyle(color: ApexColors.textMuted)),
               Slider(

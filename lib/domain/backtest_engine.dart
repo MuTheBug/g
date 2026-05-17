@@ -49,15 +49,23 @@ class BacktestEngine {
   final BinanceApi _api;
   final ApexConfluenceStrategy _strategy;
 
-  /// Runs the backtest. Reports progress (0..1) via [onProgress] if provided.
+  /// Runs the backtest. Reports progress (0..1) via [onProgress] if
+  /// provided. [cachedCandles] lets a caller (typically
+  /// [BacktestSweeper]) pre-fetch a symbol's HTF/MTF/LTF series once and
+  /// hand them in so we don't refetch on every (symbol, LTF) iteration —
+  /// crucial for keeping the sweep under Binance's rate-limit budget.
   Future<BacktestResult> run(
     BacktestConfig cfg, {
     void Function(double progress, String stage)? onProgress,
+    Map<Timeframe, List<Candle>>? cachedCandles,
   }) async {
     onProgress?.call(0, 'Fetching klines');
-    final ltf = await _fetchAll(cfg.symbol, cfg.ltf, cfg.startTime, cfg.endTime);
-    final htf = await _fetchAll(cfg.symbol, cfg.htf, cfg.startTime, cfg.endTime);
-    final mtf = await _fetchAll(cfg.symbol, cfg.mtf, cfg.startTime, cfg.endTime);
+    final ltf = cachedCandles?[cfg.ltf] ??
+        await _fetchAll(cfg.symbol, cfg.ltf, cfg.startTime, cfg.endTime);
+    final htf = cachedCandles?[cfg.htf] ??
+        await _fetchAll(cfg.symbol, cfg.htf, cfg.startTime, cfg.endTime);
+    final mtf = cachedCandles?[cfg.mtf] ??
+        await _fetchAll(cfg.symbol, cfg.mtf, cfg.startTime, cfg.endTime);
     if (ltf.length < cfg.warmupBars + 5) {
       return BacktestResult(
         symbol: cfg.symbol,
