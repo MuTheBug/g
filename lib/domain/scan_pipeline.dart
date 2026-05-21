@@ -11,6 +11,7 @@ import '../data/repositories/settings_repository.dart';
 import '../services/notification_service.dart';
 import 'auto_trader.dart';
 import 'scanner.dart' show MarketScanner, ScanProgress;
+import 'stop_manager.dart';
 import 'strategy.dart';
 
 /// Result returned by [ScanPipeline.run] so the caller can update state
@@ -42,12 +43,14 @@ class ScanPipeline {
     required JournalRepository journal,
     required ScanHistoryRepository history,
     required SettingsRepository settingsRepo,
+    StopManager? stopManager,
     NotificationService? notifications,
   })  : _scanner = scanner,
         _broker = broker,
         _journal = journal,
         _history = history,
         _settingsRepo = settingsRepo,
+        _stopManager = stopManager,
         _notifications = notifications ?? NotificationService.instance;
 
   final MarketScanner _scanner;
@@ -55,6 +58,7 @@ class ScanPipeline {
   final JournalRepository _journal;
   final ScanHistoryRepository _history;
   final SettingsRepository _settingsRepo;
+  final StopManager? _stopManager;
   final NotificationService _notifications;
 
   Future<ScanPipelineResult> run({
@@ -99,6 +103,39 @@ class ScanPipeline {
             skipped: const [],
             warnings: ['Auto-trade pipeline error: $e'],
           );
+        }
+      }
+
+      // Lock-in pass — ratchet stop-losses on every existing open
+      // position toward profit. Outcomes get appended to the scan
+      // record's warnings list so they're visible in scan history.
+      if (_stopManager != null) {
+        try {
+          final outcomes =
+              await _stopManager!.reconcileAll(settings, broker: _broker);
+          for (final o in outcomes) {
+            if (o.action == 'moved-to-be' || o.action == 'moved-to-tp1') {
+              final w = report?.warnings.toList(growable: true) ?? <String>[];
+              w.add('${o.symbol}: SL → '
+                  '${o.action == 'moved-to-be' ? 'break-even' : 'TP1'} '
+                  '(${(o.toSl ?? 0).toStringAsFixed(6)})');
+              report = AutoTradeReport(
+                placed: report?.placed ?? const [],
+                skipped: report?.skipped ?? const [],
+                warnings: w,
+              );
+            } else if (o.action == 'failed' && o.error != null) {
+              final w = report?.warnings.toList(growable: true) ?? <String>[];
+              w.add('SL ratchet ${o.symbol}: ${o.error}');
+              report = AutoTradeReport(
+                placed: report?.placed ?? const [],
+                skipped: report?.skipped ?? const [],
+                warnings: w,
+              );
+            }
+          }
+        } catch (e) {
+          if (kDebugMode) debugPrint('StopManager reconcileAll: $e');
         }
       }
     } catch (e, st) {

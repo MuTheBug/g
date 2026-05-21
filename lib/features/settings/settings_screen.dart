@@ -254,6 +254,63 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ),
         const SizedBox(height: 10),
 
+        // -------- Profit lock-in --------
+        ApexCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Profit lock-in',
+                  style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 4),
+              const Text(
+                'After a take-profit fills, the original stop-loss stays at the '
+                'entry distance — so a retrace can give back more than the '
+                'partial TP gained. Ratcheting the stop forward locks in gains.',
+                style: TextStyle(color: ApexColors.textMuted, fontSize: 12.5),
+              ),
+              const SizedBox(height: 6),
+              SwitchListTile(
+                value: s.lockInProfits,
+                onChanged: (v) =>
+                    notifier.update((st) => st.copyWith(lockInProfits: v)),
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Auto-ratchet stop-loss (master)'),
+                subtitle: const Text(
+                  'Runs after every scan and on Positions pull-to-refresh.',
+                  style: TextStyle(color: ApexColors.textMuted, fontSize: 12),
+                ),
+              ),
+              SwitchListTile(
+                value: s.moveToBeAfterTp1,
+                onChanged: s.lockInProfits
+                    ? (v) => notifier
+                        .update((st) => st.copyWith(moveToBeAfterTp1: v))
+                    : null,
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Move SL to entry after TP1'),
+                subtitle: const Text(
+                  'Once 33% closes at +1.5R, the remaining 66% rides risk-free.',
+                  style: TextStyle(color: ApexColors.textMuted, fontSize: 12),
+                ),
+              ),
+              SwitchListTile(
+                value: s.moveToTp1AfterTp2,
+                onChanged: s.lockInProfits
+                    ? (v) => notifier
+                        .update((st) => st.copyWith(moveToTp1AfterTp2: v))
+                    : null,
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Move SL to TP1 after TP2'),
+                subtitle: const Text(
+                  'Locks in +1.5R on the final 33% so worst-case becomes a winner.',
+                  style: TextStyle(color: ApexColors.textMuted, fontSize: 12),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+
         // -------- Validated symbols (Symbol Sweep gate) --------
         ApexCard(
           child: Column(

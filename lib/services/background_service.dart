@@ -12,6 +12,7 @@ import '../data/repositories/settings_repository.dart';
 import '../data/repositories/trading_repository.dart';
 import '../domain/scan_pipeline.dart';
 import '../domain/scanner.dart';
+import '../domain/stop_manager.dart';
 import '../domain/strategy.dart';
 import 'notification_service.dart';
 
@@ -66,6 +67,12 @@ void backgroundCallbackDispatcher() {
         journal: JournalRepository.instance,
         history: ScanHistoryRepository.instance,
         settingsRepo: SettingsRepository.instance,
+        // Reuse StopManager in the background isolate so SL ratchets
+        // continue to happen even when the app is closed.
+        stopManager: StopManager(
+          api: api,
+          journal: JournalRepository.instance,
+        ),
         notifications: NotificationService.instance,
       );
       // Lower parallelism in background — Workmanager budgets are tight on

@@ -294,6 +294,23 @@ class BinanceApi {
     return r.data ?? const {};
   }
 
+  /// All open algo (conditional) orders for [symbol], including the
+  /// STOP_MARKET / TAKE_PROFIT_MARKET brackets placed by
+  /// [TradingRepository.openMarketWithBrackets]. The regular
+  /// /openOrders endpoint does NOT include algo orders, so any
+  /// SL-replacement code must call this too.
+  Future<List<OpenAlgoOrder>> getOpenAlgoOrders(String symbol) async {
+    final r = await _dio.get<List<dynamic>>(
+      '$_base/fapi/v1/algoOrder/openOrders',
+      queryParameters: {'symbol': symbol},
+      options: Options(extra: {'signed': true}),
+    );
+    return (r.data ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .map(OpenAlgoOrder.fromJson)
+        .toList();
+  }
+
   /// Cancels a single algo order placed via [newAlgoConditional]. Used by the
   /// "Test orders" screen to clean up the validation orders it places (the
   /// algo endpoint has no /test variant, so we have to place + cancel).
@@ -368,6 +385,30 @@ class BinanceApi {
   Future<void> closeUserDataStream() async {
     await _dio.delete<Map<String, dynamic>>(
       '$_base/fapi/v1/listenKey',
+      options: Options(extra: {'signed': true}),
+    );
+  }
+
+  /// All resting orders for [symbol]. Used by the stop-manager to find
+  /// the active SL so it can be replaced when a TP fills.
+  Future<List<OpenOrder>> getOpenOrders(String symbol) async {
+    final r = await _dio.get<List<dynamic>>(
+      '$_base/fapi/v1/openOrders',
+      queryParameters: {'symbol': symbol},
+      options: Options(extra: {'signed': true}),
+    );
+    return (r.data ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .map(OpenOrder.fromJson)
+        .toList();
+  }
+
+  /// Cancel a specific order by id (preferred over cancelAllOrders when
+  /// we only want to ratchet the SL but keep the TPs in place).
+  Future<void> cancelOrder(String symbol, int orderId) async {
+    await _dio.delete<Map<String, dynamic>>(
+      '$_base/fapi/v1/order',
+      queryParameters: {'symbol': symbol, 'orderId': orderId},
       options: Options(extra: {'signed': true}),
     );
   }

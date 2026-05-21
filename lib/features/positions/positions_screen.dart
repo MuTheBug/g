@@ -42,12 +42,53 @@ class _PositionsScreenState extends ConsumerState<PositionsScreen> {
         _account = account;
         _positions = positions;
       });
+      // Opportunistic SL ratchet — runs on every pull-to-refresh so the
+      // user gets instant gain-locking whenever they look at the screen,
+      // not just at the next scheduled scan. Best-effort; failures are
+      // swallowed (the next scan retries).
+      try {
+        final settings = await ref.read(settingsRepoProvider).load();
+        if (settings.lockInProfits) {
+          await ref.read(stopManagerProvider).reconcileAll(
+                settings,
+                broker: ref.read(tradingRepoProvider),
+              );
+        }
+      } catch (_) {/* best-effort */}
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _loading = false;
         _error = e.toString();
       });
+    }
+  }
+
+  Future<void> _lockInNow() async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final settings = await ref.read(settingsRepoProvider).load();
+      final outcomes = await ref.read(stopManagerProvider).reconcileAll(
+            settings,
+            broker: ref.read(tradingRepoProvider),
+          );
+      final moved = outcomes.where((o) => o.changed).toList();
+      final failed = outcomes
+          .where((o) => o.action == 'failed')
+          .map((o) => '${o.symbol}: ${o.error}')
+          .toList();
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(
+        content: Text(moved.isEmpty
+            ? (failed.isEmpty
+                ? 'Nothing to ratchet — no positions past TP1.'
+                : 'Lock-in failed: ${failed.first}')
+            : 'Ratcheted ${moved.length} stop${moved.length == 1 ? '' : 's'}'),
+      ));
+      await _refresh();
+    } catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text('Lock-in failed: $e')));
     }
   }
 
@@ -82,6 +123,11 @@ class _PositionsScreenState extends ConsumerState<PositionsScreen> {
       appBar: AppBar(
         title: const Text('Positions & Account'),
         actions: [
+          IconButton(
+            tooltip: 'Lock in profits now',
+            onPressed: _positions.isEmpty ? null : _lockInNow,
+            icon: const Icon(Icons.lock_outline),
+          ),
           IconButton(onPressed: _refresh, icon: const Icon(Icons.refresh)),
         ],
       ),

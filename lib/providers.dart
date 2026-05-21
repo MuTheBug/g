@@ -15,6 +15,7 @@ import 'data/streams/user_data_stream.dart';
 import 'domain/auto_trader.dart';
 import 'domain/scan_pipeline.dart';
 import 'domain/scanner.dart';
+import 'domain/stop_manager.dart';
 import 'domain/strategy.dart';
 
 final credentialsStoreProvider = Provider<SecureCredentialStore>((ref) {
@@ -99,6 +100,13 @@ final scanHistoryRepoProvider = Provider<ScanHistoryRepository>((ref) {
 /// Unified scan pipeline shared by foreground UI and background workmanager
 /// callback. Owns the scan → auto-trade → persist → notify policy in one
 /// place so the two paths can't drift.
+final stopManagerProvider = Provider<StopManager>((ref) {
+  return StopManager(
+    api: ref.watch(binanceApiProvider),
+    journal: ref.watch(journalRepoProvider),
+  );
+});
+
 final scanPipelineProvider = Provider<ScanPipeline>((ref) {
   return ScanPipeline(
     scanner: ref.watch(scannerProvider),
@@ -106,6 +114,7 @@ final scanPipelineProvider = Provider<ScanPipeline>((ref) {
     journal: ref.watch(journalRepoProvider),
     history: ref.watch(scanHistoryRepoProvider),
     settingsRepo: ref.watch(settingsRepoProvider),
+    stopManager: ref.watch(stopManagerProvider),
   );
 });
 

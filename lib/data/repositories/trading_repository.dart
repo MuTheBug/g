@@ -468,6 +468,77 @@ class TradingRepository implements Broker {
 
   Future<void> cancelAll(String symbol) => _api.cancelAllOrders(symbol);
 
+  /// Replace the active algo STOP_MARKET on [symbol] with a fresh one at
+  /// [newStopPrice]. The new order uses the same hedge-mode-aware shape
+  /// as the original brackets, so any account that auto-trade works on
+  /// can also be ratcheted.
+  @override
+  Future<String?> replaceStopLoss({
+    required String symbol,
+    required SignalSide side,
+    required double newStopPrice,
+    required double quantity,
+    required SymbolRules rules,
+  }) async {
+    if (quantity <= 0 || newStopPrice <= 0) return null;
+    final closeSide = side == SignalSide.long ? 'SELL' : 'BUY';
+    final hedge = await _isHedgeMode();
+    final positionSide = side == SignalSide.long ? 'LONG' : 'SHORT';
+    final roundedStop = rules.formatPrice(newStopPrice);
+    final qtyStr = rules.formatQuantity(quantity);
+
+    // 1) Cancel the existing algo SL (if any). Look at the algo endpoint
+    //    since that's where _placeBracket parks the original stop. We
+    //    explicitly target only STOP_MARKET so TP orders aren't touched.
+    try {
+      final open = await _api.getOpenAlgoOrders(symbol);
+      for (final o in open) {
+        if (!o.isStopLoss) continue;
+        if (o.side != closeSide) continue;
+        try {
+          await _api.cancelAlgoOrder(o.algoId);
+        } catch (_) {/* tolerate one cancel failure */}
+      }
+    } catch (_) {/* tolerate openAlgoOrders failure */}
+
+    // Some legacy positions may have a regular-order STOP_MARKET — clear
+    // those too so the new ratcheted SL is unambiguous.
+    try {
+      final regular = await _api.getOpenOrders(symbol);
+      for (final o in regular) {
+        if (!o.isStopLoss) continue;
+        if (o.side != closeSide) continue;
+        try {
+          await _api.cancelOrder(symbol, o.orderId);
+        } catch (_) {/* tolerate */}
+      }
+    } catch (_) {/* tolerate */}
+
+    // 2) Place the new SL via the same algo path as the original bracket.
+    try {
+      await _api.newAlgoConditional(
+        symbol: symbol,
+        side: closeSide,
+        type: 'STOP_MARKET',
+        quantity: qtyStr,
+        triggerPrice: roundedStop,
+        reduceOnly: hedge ? null : true,
+        positionSide: hedge ? positionSide : null,
+        workingType: 'MARK_PRICE',
+        priceProtect: true,
+        clientAlgoId: _coid('SLra'),
+      );
+      return 'SL → $roundedStop';
+    } on DioException catch (e) {
+      // Surface the Binance error code so the caller can log it.
+      final body = e.response?.data;
+      if (body is Map && body['msg'] is String) {
+        throw 'Binance: ${body['msg']}';
+      }
+      rethrow;
+    }
+  }
+
   /// Run every bracket-shape variant through Binance's `/fapi/v1/order/test`
   /// endpoint without placing any real orders. Returns a report of which
   /// shapes Binance accepts on the user's account, so the user can confirm

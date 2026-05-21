@@ -25,6 +25,9 @@ class AppSettings {
     this.paperStartingBalance = 10000,
     this.validatedSymbols = const <String>{},
     this.validatedSymbolsEnabled = false,
+    this.lockInProfits = true,
+    this.moveToBeAfterTp1 = true,
+    this.moveToTp1AfterTp2 = true,
   });
 
   final int scanLimit;
@@ -57,6 +60,12 @@ class AppSettings {
   final Set<String> validatedSymbols;
   final bool validatedSymbolsEnabled;
 
+  /// Master toggle for the SL ratchet. When off, the stop-manager is a
+  /// no-op even if [moveToBeAfterTp1] / [moveToTp1AfterTp2] are on.
+  final bool lockInProfits;
+  final bool moveToBeAfterTp1;
+  final bool moveToTp1AfterTp2;
+
   AppSettings copyWith({
     int? scanLimit,
     int? minConfidence,
@@ -79,6 +88,9 @@ class AppSettings {
     double? paperStartingBalance,
     Set<String>? validatedSymbols,
     bool? validatedSymbolsEnabled,
+    bool? lockInProfits,
+    bool? moveToBeAfterTp1,
+    bool? moveToTp1AfterTp2,
   }) =>
       AppSettings(
         scanLimit: scanLimit ?? this.scanLimit,
@@ -103,6 +115,9 @@ class AppSettings {
         validatedSymbols: validatedSymbols ?? this.validatedSymbols,
         validatedSymbolsEnabled:
             validatedSymbolsEnabled ?? this.validatedSymbolsEnabled,
+        lockInProfits: lockInProfits ?? this.lockInProfits,
+        moveToBeAfterTp1: moveToBeAfterTp1 ?? this.moveToBeAfterTp1,
+        moveToTp1AfterTp2: moveToTp1AfterTp2 ?? this.moveToTp1AfterTp2,
       );
 }
 
@@ -131,6 +146,9 @@ class SettingsRepository {
   static const _kPaperBal = 'paperStartingBalance';
   static const _kValidated = 'validatedSymbols';
   static const _kValidatedOn = 'validatedSymbolsEnabled';
+  static const _kLockProfits = 'lockInProfits';
+  static const _kBeAfterTp1 = 'moveToBeAfterTp1';
+  static const _kTp1AfterTp2 = 'moveToTp1AfterTp2';
 
   Future<SharedPreferences> get _prefs async => SharedPreferences.getInstance();
 
@@ -162,6 +180,9 @@ class SettingsRepository {
         validatedSymbols: (p.getStringList(_kValidated) ?? const <String>[])
             .toSet(),
         validatedSymbolsEnabled: p.getBool(_kValidatedOn) ?? false,
+        lockInProfits: p.getBool(_kLockProfits) ?? true,
+        moveToBeAfterTp1: p.getBool(_kBeAfterTp1) ?? true,
+        moveToTp1AfterTp2: p.getBool(_kTp1AfterTp2) ?? true,
       );
     } catch (_) {
       return const AppSettings();
@@ -193,6 +214,9 @@ class SettingsRepository {
         p.setDouble(_kPaperBal, s.paperStartingBalance),
         p.setStringList(_kValidated, s.validatedSymbols.toList()),
         p.setBool(_kValidatedOn, s.validatedSymbolsEnabled),
+        p.setBool(_kLockProfits, s.lockInProfits),
+        p.setBool(_kBeAfterTp1, s.moveToBeAfterTp1),
+        p.setBool(_kTp1AfterTp2, s.moveToTp1AfterTp2),
       ]);
     } catch (_) {/* tolerate disk failure */}
   }

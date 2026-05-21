@@ -37,6 +37,19 @@ abstract class Broker {
 
   Future<void> cancelAll(String symbol);
 
+  /// Replace the active stop-loss for [symbol] with a new STOP_MARKET at
+  /// [newStopPrice]. Cancels any existing algo SL on the symbol first.
+  /// [quantity] must match the current open position size (post any
+  /// TP fills). Returns a human description of the action, or null if
+  /// nothing changed (e.g. existing SL already at or beyond target).
+  Future<String?> replaceStopLoss({
+    required String symbol,
+    required SignalSide side,
+    required double newStopPrice,
+    required double quantity,
+    required SymbolRules rules,
+  });
+
   Future<OrderTestReport> testBracketShapes({
     required String symbol,
     required SignalSide side,

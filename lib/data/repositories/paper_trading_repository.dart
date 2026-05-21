@@ -218,6 +218,20 @@ class PaperTradingRepository implements Broker {
   }
 
   @override
+  Future<String?> replaceStopLoss({
+    required String symbol,
+    required SignalSide side,
+    required double newStopPrice,
+    required double quantity,
+    required SymbolRules rules,
+  }) async {
+    final pos = _positions[symbol];
+    if (pos == null) return null;
+    pos.stopLoss = newStopPrice;
+    return 'paper SL → ${newStopPrice.toStringAsFixed(6)}';
+  }
+
+  @override
   Future<OrderTestReport> testBracketShapes({
     required String symbol,
     required SignalSide side,
