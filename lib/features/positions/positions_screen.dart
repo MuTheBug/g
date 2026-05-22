@@ -47,6 +47,11 @@ class _PositionsScreenState extends ConsumerState<PositionsScreen> {
       // not just at the next scheduled scan. Best-effort; failures are
       // swallowed (the next scan retries).
       try {
+        // Detect closes first → notify + journal update before any
+        // subsequent ratchet attempts on phantom positions.
+        await ref.read(positionCloseWatcherProvider).reconcileAndNotify();
+      } catch (_) {/* best-effort */}
+      try {
         final settings = await ref.read(settingsRepoProvider).load();
         if (settings.lockInProfits) {
           await ref.read(stopManagerProvider).reconcileAll(

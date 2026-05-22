@@ -68,6 +68,8 @@ class _ApexAppState extends ConsumerState<ApexApp> {
       _router.push('/scan-history');
     } else if (payload == 'positions') {
       _router.push('/positions');
+    } else if (payload == 'journal') {
+      _router.push('/journal');
     } else {
       _router.push('/trade/$payload');
     }

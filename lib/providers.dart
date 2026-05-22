@@ -13,6 +13,7 @@ import 'data/streams/mark_price_stream.dart';
 import 'data/streams/ticker_stream.dart';
 import 'data/streams/user_data_stream.dart';
 import 'domain/auto_trader.dart';
+import 'domain/position_close_watcher.dart';
 import 'domain/scan_pipeline.dart';
 import 'domain/scanner.dart';
 import 'domain/stop_manager.dart';
@@ -107,6 +108,16 @@ final stopManagerProvider = Provider<StopManager>((ref) {
   );
 });
 
+/// Detects open → closed transitions and notifies the user with the full
+/// trade breakdown. Used by the scan pipeline and Positions screen so the
+/// alert fires both in background and on manual refresh.
+final positionCloseWatcherProvider = Provider<PositionCloseWatcher>((ref) {
+  return PositionCloseWatcher(
+    broker: ref.watch(tradingRepoProvider),
+    journal: ref.watch(journalRepoProvider),
+  );
+});
+
 final scanPipelineProvider = Provider<ScanPipeline>((ref) {
   return ScanPipeline(
     scanner: ref.watch(scannerProvider),
@@ -115,6 +126,7 @@ final scanPipelineProvider = Provider<ScanPipeline>((ref) {
     history: ref.watch(scanHistoryRepoProvider),
     settingsRepo: ref.watch(settingsRepoProvider),
     stopManager: ref.watch(stopManagerProvider),
+    closeWatcher: ref.watch(positionCloseWatcherProvider),
   );
 });
 

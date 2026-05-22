@@ -10,6 +10,7 @@ import '../data/repositories/journal_repository.dart';
 import '../data/repositories/scan_history_repository.dart';
 import '../data/repositories/settings_repository.dart';
 import '../data/repositories/trading_repository.dart';
+import '../domain/position_close_watcher.dart';
 import '../domain/scan_pipeline.dart';
 import '../domain/scanner.dart';
 import '../domain/stop_manager.dart';
@@ -61,16 +62,22 @@ void backgroundCallbackDispatcher() {
       // here — the scan + record + notification still fire, but trades
       // wait for a foreground session.
       final isPaper = settings.tradingMode == TradingMode.paper;
+      final liveBroker = TradingRepository(api);
       final pipeline = ScanPipeline(
         scanner: MarketScanner(api, const ApexConfluenceStrategy()),
-        broker: TradingRepository(api),
+        broker: liveBroker,
         journal: JournalRepository.instance,
         history: ScanHistoryRepository.instance,
         settingsRepo: SettingsRepository.instance,
-        // Reuse StopManager in the background isolate so SL ratchets
-        // continue to happen even when the app is closed.
+        // Reuse StopManager + close watcher in the background isolate so
+        // SL ratchets and close notifications continue to happen even
+        // when the app is closed.
         stopManager: StopManager(
           api: api,
+          journal: JournalRepository.instance,
+        ),
+        closeWatcher: PositionCloseWatcher(
+          broker: liveBroker,
           journal: JournalRepository.instance,
         ),
         notifications: NotificationService.instance,

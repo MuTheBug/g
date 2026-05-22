@@ -1,8 +1,10 @@
 import 'dart:io';
+import 'dart:ui' show Color;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
+import '../data/models/journal_entry.dart';
 import '../data/models/scan_record.dart';
 import '../domain/strategy.dart';
 
@@ -180,6 +182,101 @@ class NotificationService {
     } catch (e) {
       debugPrint('scan summary notify failed: $e');
     }
+  }
+
+  /// Fired when a journal entry transitions from OPEN to CLOSED — i.e. a
+  /// position the user had on Binance is no longer there. Body uses
+  /// BigText style to show the full trade breakdown (entry, exit, qty,
+  /// margin, leverage, R-multiple, holding time, paper/live).
+  Future<void> showPositionClosed({required JournalEntry entry}) async {
+    await ensureInitialized();
+    try {
+      final sideStr = entry.side == SignalSide.long ? 'LONG' : 'SHORT';
+      final pnl = entry.realizedPnlUsdt ?? 0;
+      final rMult = entry.realizedR;
+      final pnlSign = pnl >= 0 ? '+' : '';
+      final entryPx = entry.entryPrice;
+      final exitPx = entry.closedPrice ?? 0;
+      final qty = entry.quantity;
+      final marginU = entry.marginUsdt;
+      final lev = entry.leverage;
+      final closedAt = entry.closedAt ?? DateTime.now().millisecondsSinceEpoch;
+      final heldMs = closedAt - entry.openedAt;
+      final held = _formatDuration(Duration(milliseconds: heldMs));
+      final modeLabel = entry.paper ? 'paper' : 'live';
+      final fillSource = entry.autoTraded ? 'auto-trade' : 'manual';
+      final returnPct = entry.entryPrice > 0
+          ? ((exitPx - entryPx) /
+                  entryPx *
+                  (entry.side == SignalSide.long ? 1 : -1) *
+                  lev *
+                  100)
+          : 0.0;
+
+      final title = '${entry.symbol} $sideStr closed · '
+          '$pnlSign${pnl.toStringAsFixed(2)} USDT'
+          '${rMult != null ? ' (${rMult >= 0 ? '+' : ''}${rMult.toStringAsFixed(2)}R)' : ''}';
+      final shortBody = exitPx > 0
+          ? 'Entry ${entryPx.toStringAsFixed(6)} → Exit ${exitPx.toStringAsFixed(6)} · $held'
+          : 'Entry ${entryPx.toStringAsFixed(6)} · $held';
+
+      final bigBody = StringBuffer()
+        ..writeln('Entry  ${entryPx.toStringAsFixed(6)}')
+        ..writeln('Exit   ${exitPx.toStringAsFixed(6)}')
+        ..writeln(
+            'P&L    $pnlSign${pnl.toStringAsFixed(2)} USDT (${returnPct >= 0 ? '+' : ''}${returnPct.toStringAsFixed(2)}%)')
+        ..writeln(
+            'R      ${rMult == null ? '—' : '${rMult >= 0 ? '+' : ''}${rMult.toStringAsFixed(2)}R'}')
+        ..writeln('Qty    ${qty.toStringAsFixed(6)}')
+        ..writeln('Margin ${marginU.toStringAsFixed(2)} USDT · ${lev}x')
+        ..writeln('Held   $held')
+        ..write('Source $fillSource · $modeLabel');
+
+      final android = AndroidNotificationDetails(
+        'apex_position_closed',
+        'Position closed',
+        channelDescription:
+            'Fires when a position you held closes (TP, SL, or manual).',
+        importance: Importance.max,
+        priority: Priority.max,
+        icon: '@drawable/ic_apex_status',
+        styleInformation: BigTextStyleInformation(
+          bigBody.toString(),
+          contentTitle: title,
+          summaryText: shortBody,
+        ),
+        color: pnl >= 0 ? const Color.fromARGB(255, 30, 175, 60) : const Color.fromARGB(255, 220, 50, 50),
+        colorized: true,
+      );
+
+      // Stable per-entry id keeps re-fires (e.g. someone hits "refresh"
+      // twice) from stacking. Journal id is a string; hash it down to a
+      // small int that fits Android notif-id semantics.
+      final notifId = 5000 + (entry.id.hashCode.abs() % 90000);
+
+      await _plugin.show(
+        notifId,
+        title,
+        shortBody,
+        NotificationDetails(android: android),
+        payload: 'journal',
+      );
+    } catch (e) {
+      debugPrint('position-closed notify failed: $e');
+    }
+  }
+
+  String _formatDuration(Duration d) {
+    if (d.inDays > 0) {
+      final h = d.inHours - d.inDays * 24;
+      return '${d.inDays}d ${h}h';
+    }
+    if (d.inHours > 0) {
+      final m = d.inMinutes - d.inHours * 60;
+      return '${d.inHours}h ${m}m';
+    }
+    if (d.inMinutes > 0) return '${d.inMinutes}m';
+    return '${d.inSeconds}s';
   }
 
   /// Per-trade-fill alert. Fired only when auto-trade actually places an

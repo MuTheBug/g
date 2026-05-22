@@ -10,6 +10,7 @@ import '../data/repositories/scan_history_repository.dart';
 import '../data/repositories/settings_repository.dart';
 import '../services/notification_service.dart';
 import 'auto_trader.dart';
+import 'position_close_watcher.dart';
 import 'scanner.dart' show MarketScanner, ScanProgress;
 import 'stop_manager.dart';
 import 'strategy.dart';
@@ -44,6 +45,7 @@ class ScanPipeline {
     required ScanHistoryRepository history,
     required SettingsRepository settingsRepo,
     StopManager? stopManager,
+    PositionCloseWatcher? closeWatcher,
     NotificationService? notifications,
   })  : _scanner = scanner,
         _broker = broker,
@@ -51,6 +53,7 @@ class ScanPipeline {
         _history = history,
         _settingsRepo = settingsRepo,
         _stopManager = stopManager,
+        _closeWatcher = closeWatcher,
         _notifications = notifications ?? NotificationService.instance;
 
   final MarketScanner _scanner;
@@ -59,6 +62,7 @@ class ScanPipeline {
   final ScanHistoryRepository _history;
   final SettingsRepository _settingsRepo;
   final StopManager? _stopManager;
+  final PositionCloseWatcher? _closeWatcher;
   final NotificationService _notifications;
 
   Future<ScanPipelineResult> run({
@@ -103,6 +107,31 @@ class ScanPipeline {
             skipped: const [],
             warnings: ['Auto-trade pipeline error: $e'],
           );
+        }
+      }
+
+      // Close-detection pass — find journal entries whose symbol is no
+      // longer in open positions and fire a notification for each. Runs
+      // BEFORE the stop ratchet so we don't try to move SL on a closed
+      // position. Errors are swallowed; the next scan retries.
+      if (_closeWatcher != null) {
+        try {
+          final closed = await _closeWatcher!.reconcileAndNotify();
+          for (final e in closed) {
+            final pnl = e.realizedPnlUsdt ?? 0;
+            final r = e.realizedR;
+            final w = report?.warnings.toList(growable: true) ?? <String>[];
+            w.add(
+                '${e.symbol} closed: ${pnl >= 0 ? '+' : ''}${pnl.toStringAsFixed(2)} USDT'
+                '${r == null ? '' : ' (${r >= 0 ? '+' : ''}${r.toStringAsFixed(2)}R)'}');
+            report = AutoTradeReport(
+              placed: report?.placed ?? const [],
+              skipped: report?.skipped ?? const [],
+              warnings: w,
+            );
+          }
+        } catch (e) {
+          if (kDebugMode) debugPrint('CloseWatcher reconcile: $e');
         }
       }
 
