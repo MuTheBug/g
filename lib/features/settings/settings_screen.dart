@@ -197,6 +197,52 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ),
         const SizedBox(height: 10),
 
+        // -------- Strategy --------
+        ApexCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Strategy',
+                  style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 4),
+              const Text(
+                'Which set of rules the scanner / auto-trader uses. Both '
+                'output the same Signal shape so backtest, paper, and live '
+                'all work either way.',
+                style: TextStyle(color: ApexColors.textMuted, fontSize: 12.5),
+              ),
+              const SizedBox(height: 8),
+              RadioListTile<String>(
+                value: 'pullback',
+                groupValue: s.strategyId,
+                onChanged: (v) =>
+                    notifier.update((st) => st.copyWith(strategyId: v)),
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Trend Pullback (recommended)'),
+                subtitle: const Text(
+                  'HTF trend → MTF pullback → LTF reversal candle. Tighter SL at trigger-low, '
+                  'TP1 at recent swing high. Fewer trades, higher conviction.',
+                  style: TextStyle(color: ApexColors.textMuted, fontSize: 12),
+                ),
+              ),
+              RadioListTile<String>(
+                value: 'apex',
+                groupValue: s.strategyId,
+                onChanged: (v) =>
+                    notifier.update((st) => st.copyWith(strategyId: v)),
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Apex Confluence (legacy)'),
+                subtitle: const Text(
+                  '11-factor weighted vote. The original strategy — kept as a '
+                  'fallback while we validate the new one.',
+                  style: TextStyle(color: ApexColors.textMuted, fontSize: 12),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+
         // -------- Trading mode --------
         ApexCard(
           child: Column(

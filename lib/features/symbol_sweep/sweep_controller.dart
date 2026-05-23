@@ -98,8 +98,10 @@ class SweepController extends Notifier<SweepState> {
       currentLtf: ltfCandidates.isEmpty ? null : ltfCandidates.first,
     );
     try {
-      final sweeper =
-          BacktestSweeper(api: ref.read(binanceApiProvider));
+      final sweeper = BacktestSweeper(
+        api: ref.read(binanceApiProvider),
+        strategy: ref.read(strategyProvider),
+      );
       final results = await sweeper.run(
         SweepConfig(
           symbols: symbols,

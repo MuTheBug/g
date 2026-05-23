@@ -15,6 +15,7 @@ import '../domain/scan_pipeline.dart';
 import '../domain/scanner.dart';
 import '../domain/stop_manager.dart';
 import '../domain/strategy.dart';
+import '../domain/trend_pullback_strategy.dart';
 import 'notification_service.dart';
 
 const _kPeriodicTask = 'apex_periodic_scan';
@@ -63,8 +64,11 @@ void backgroundCallbackDispatcher() {
       // wait for a foreground session.
       final isPaper = settings.tradingMode == TradingMode.paper;
       final liveBroker = TradingRepository(api);
+      final strategy = settings.strategyId == 'apex'
+          ? const ApexConfluenceStrategy()
+          : const TrendPullbackStrategy();
       final pipeline = ScanPipeline(
-        scanner: MarketScanner(api, const ApexConfluenceStrategy()),
+        scanner: MarketScanner(api, strategy),
         broker: liveBroker,
         journal: JournalRepository.instance,
         history: ScanHistoryRepository.instance,

@@ -34,7 +34,7 @@ class MarketScanner {
   MarketScanner(this._api, this._strategy);
 
   final BinanceApi _api;
-  final ApexConfluenceStrategy _strategy;
+  final TradingStrategy _strategy;
 
   Future<List<Signal>> scan({
     required AppSettings settings,

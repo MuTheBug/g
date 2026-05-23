@@ -120,10 +120,51 @@ class StrategyConfig {
 ///
 /// Risk management: ATR-based dynamic SL (default 1.5×ATR) and TP1/TP2/TP3 at
 /// fixed R-multiples (1.5R / 2.5R / 4R).
-class ApexConfluenceStrategy {
+/// Common surface for every trading strategy in the app. The scanner /
+/// backtest engine / sweeper depend on this so a new strategy implementation
+/// drops in without touching downstream code.
+abstract class TradingStrategy {
+  const TradingStrategy();
+
+  /// Stable string id for persistence in [AppSettings.strategyId].
+  String get id;
+
+  /// Human-readable name for the Settings selector.
+  String get displayName;
+
+  /// One-line description of what the strategy looks for.
+  String get description;
+
+  /// Minimum LTF bars needed before [evaluate] should be called. The
+  /// scanner uses this as an early-out so symbols with sparse history
+  /// don't waste API calls.
+  int get warmupBars;
+
+  Signal? evaluate({
+    required String symbol,
+    required List<Candle> htf,
+    required List<Candle> mtf,
+    required List<Candle> ltf,
+    int? nowMs,
+  });
+}
+
+class ApexConfluenceStrategy extends TradingStrategy {
   const ApexConfluenceStrategy([this.config = const StrategyConfig()]);
   final StrategyConfig config;
 
+  @override
+  String get id => 'apex';
+  @override
+  String get displayName => 'Apex Confluence (legacy)';
+  @override
+  String get description =>
+      '11-factor confluence: HTF/MTF bias + ADX regime + EMA stack + RSI + '
+      'MACD + volume + BB + VWAP + StochRSI + divergence + OBV + candle.';
+  @override
+  int get warmupBars => 220;
+
+  @override
   Signal? evaluate({
     required String symbol,
     required List<Candle> htf,

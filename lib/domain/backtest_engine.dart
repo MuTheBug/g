@@ -42,12 +42,12 @@ class BacktestConfig {
 class BacktestEngine {
   BacktestEngine({
     required BinanceApi api,
-    ApexConfluenceStrategy? strategy,
+    TradingStrategy? strategy,
   })  : _api = api,
         _strategy = strategy ?? const ApexConfluenceStrategy();
 
   final BinanceApi _api;
-  final ApexConfluenceStrategy _strategy;
+  final TradingStrategy _strategy;
 
   /// Runs the backtest. Reports progress (0..1) via [onProgress] if
   /// provided. [cachedCandles] lets a caller (typically

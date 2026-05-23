@@ -10,6 +10,7 @@ import '../data/models/candle.dart';
 import '../data/models/symbol_performance.dart';
 import '../data/models/timeframe.dart';
 import 'backtest_engine.dart';
+import 'strategy.dart';
 
 /// Hierarchical progress event from the sweeper. The UI uses the symbol /
 /// LTF coordinates to render "BTCUSDT · 15m (3 of 4) · 240 bars".
@@ -81,8 +82,13 @@ class SweepConfig {
 ///  - A configurable inter-call delay keeps us under the per-minute
 ///    request-weight budget even on a 300-symbol sweep.
 class BacktestSweeper {
-  BacktestSweeper({required BinanceApi api}) : _api = api;
+  BacktestSweeper({
+    required BinanceApi api,
+    TradingStrategy? strategy,
+  })  : _api = api,
+        _strategy = strategy;
   final BinanceApi _api;
+  final TradingStrategy? _strategy;
 
   /// HTF/MTF pairing rule.
   static ({Timeframe mtf, Timeframe htf}) tfPairing(Timeframe ltf) {
@@ -136,7 +142,7 @@ class BacktestSweeper {
     bool Function()? cancelled,
   }) async {
     final out = <SymbolPerformance>[];
-    final engine = BacktestEngine(api: _api);
+    final engine = BacktestEngine(api: _api, strategy: _strategy);
     final now = DateTime.now().millisecondsSinceEpoch;
     final start = now - cfg.lookbackDays * 24 * 60 * 60 * 1000;
 

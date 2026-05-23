@@ -28,6 +28,7 @@ class AppSettings {
     this.lockInProfits = true,
     this.moveToBeAfterTp1 = true,
     this.moveToTp1AfterTp2 = true,
+    this.strategyId = 'pullback',
   });
 
   final int scanLimit;
@@ -66,6 +67,11 @@ class AppSettings {
   final bool moveToBeAfterTp1;
   final bool moveToTp1AfterTp2;
 
+  /// One of: 'apex' (the original 11-factor confluence) or 'pullback' (the
+  /// newer trend-pullback strategy). Default is 'pullback' because ACS has
+  /// been bleeding equity on this account.
+  final String strategyId;
+
   AppSettings copyWith({
     int? scanLimit,
     int? minConfidence,
@@ -91,6 +97,7 @@ class AppSettings {
     bool? lockInProfits,
     bool? moveToBeAfterTp1,
     bool? moveToTp1AfterTp2,
+    String? strategyId,
   }) =>
       AppSettings(
         scanLimit: scanLimit ?? this.scanLimit,
@@ -118,6 +125,7 @@ class AppSettings {
         lockInProfits: lockInProfits ?? this.lockInProfits,
         moveToBeAfterTp1: moveToBeAfterTp1 ?? this.moveToBeAfterTp1,
         moveToTp1AfterTp2: moveToTp1AfterTp2 ?? this.moveToTp1AfterTp2,
+        strategyId: strategyId ?? this.strategyId,
       );
 }
 
@@ -149,6 +157,7 @@ class SettingsRepository {
   static const _kLockProfits = 'lockInProfits';
   static const _kBeAfterTp1 = 'moveToBeAfterTp1';
   static const _kTp1AfterTp2 = 'moveToTp1AfterTp2';
+  static const _kStrategyId = 'strategyId';
 
   Future<SharedPreferences> get _prefs async => SharedPreferences.getInstance();
 
@@ -183,6 +192,7 @@ class SettingsRepository {
         lockInProfits: p.getBool(_kLockProfits) ?? true,
         moveToBeAfterTp1: p.getBool(_kBeAfterTp1) ?? true,
         moveToTp1AfterTp2: p.getBool(_kTp1AfterTp2) ?? true,
+        strategyId: p.getString(_kStrategyId) ?? 'pullback',
       );
     } catch (_) {
       return const AppSettings();
@@ -217,6 +227,7 @@ class SettingsRepository {
         p.setBool(_kLockProfits, s.lockInProfits),
         p.setBool(_kBeAfterTp1, s.moveToBeAfterTp1),
         p.setBool(_kTp1AfterTp2, s.moveToTp1AfterTp2),
+        p.setString(_kStrategyId, s.strategyId),
       ]);
     } catch (_) {/* tolerate disk failure */}
   }

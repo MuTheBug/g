@@ -62,7 +62,10 @@ class BacktestController extends Notifier<BacktestState> {
       clearResult: true,
     );
     try {
-      final engine = BacktestEngine(api: ref.read(binanceApiProvider));
+      final engine = BacktestEngine(
+        api: ref.read(binanceApiProvider),
+        strategy: ref.read(strategyProvider),
+      );
       final result = await engine.run(
         BacktestConfig(
           symbol: symbol,

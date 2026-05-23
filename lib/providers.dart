@@ -18,6 +18,7 @@ import 'domain/scan_pipeline.dart';
 import 'domain/scanner.dart';
 import 'domain/stop_manager.dart';
 import 'domain/strategy.dart';
+import 'domain/trend_pullback_strategy.dart';
 
 final credentialsStoreProvider = Provider<SecureCredentialStore>((ref) {
   return SecureCredentialStore.instance;
@@ -82,8 +83,15 @@ final tradingRepoProvider = Provider<Broker>((ref) {
       : ref.watch(liveTradingRepoProvider);
 });
 
-final strategyProvider = Provider<ApexConfluenceStrategy>((ref) {
-  return const ApexConfluenceStrategy();
+final strategyProvider = Provider<TradingStrategy>((ref) {
+  final id = ref.watch(settingsProvider).valueOrNull?.strategyId ?? 'pullback';
+  switch (id) {
+    case 'apex':
+      return const ApexConfluenceStrategy();
+    case 'pullback':
+    default:
+      return const TrendPullbackStrategy();
+  }
 });
 
 final scannerProvider = Provider<MarketScanner>((ref) {
