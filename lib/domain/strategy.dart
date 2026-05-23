@@ -1,4 +1,5 @@
 import '../data/models/candle.dart';
+import '../data/models/timeframe.dart';
 import 'indicators.dart';
 
 enum SignalSide { long, short }
@@ -139,6 +140,27 @@ abstract class TradingStrategy {
   /// scanner uses this as an early-out so symbols with sparse history
   /// don't waste API calls.
   int get warmupBars;
+
+  /// Timeframes the strategy will accept as HTF. Backtest + Sweep UIs
+  /// filter their TF chips to this set so the user can't run a config
+  /// the strategy was never designed for. Defaults cover the classic
+  /// 3-tier-trend playbook.
+  Set<Timeframe> get supportedHtf =>
+      const {Timeframe.h1, Timeframe.h4, Timeframe.d1};
+
+  Set<Timeframe> get supportedMtf => const {
+        Timeframe.m15,
+        Timeframe.m30,
+        Timeframe.h1,
+        Timeframe.h4,
+      };
+
+  Set<Timeframe> get supportedLtf => const {
+        Timeframe.m5,
+        Timeframe.m15,
+        Timeframe.m30,
+        Timeframe.h1,
+      };
 
   Signal? evaluate({
     required String symbol,

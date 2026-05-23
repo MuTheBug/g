@@ -13,13 +13,12 @@ import 'data/streams/mark_price_stream.dart';
 import 'data/streams/ticker_stream.dart';
 import 'data/streams/user_data_stream.dart';
 import 'domain/auto_trader.dart';
-import 'domain/orb_strategy.dart';
 import 'domain/position_close_watcher.dart';
 import 'domain/scan_pipeline.dart';
 import 'domain/scanner.dart';
 import 'domain/stop_manager.dart';
 import 'domain/strategy.dart';
-import 'domain/trend_pullback_strategy.dart';
+import 'domain/strategy_registry.dart';
 
 final credentialsStoreProvider = Provider<SecureCredentialStore>((ref) {
   return SecureCredentialStore.instance;
@@ -86,15 +85,7 @@ final tradingRepoProvider = Provider<Broker>((ref) {
 
 final strategyProvider = Provider<TradingStrategy>((ref) {
   final id = ref.watch(settingsProvider).valueOrNull?.strategyId ?? 'apex';
-  switch (id) {
-    case 'orb':
-      return const OrbStrategy();
-    case 'pullback':
-      return const TrendPullbackStrategy();
-    case 'apex':
-    default:
-      return const ApexConfluenceStrategy();
-  }
+  return StrategyRegistry.fromId(id);
 });
 
 final scannerProvider = Provider<MarketScanner>((ref) {

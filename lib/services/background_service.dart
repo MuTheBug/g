@@ -11,12 +11,11 @@ import '../data/repositories/scan_history_repository.dart';
 import '../data/repositories/settings_repository.dart';
 import '../data/repositories/trading_repository.dart';
 import '../domain/position_close_watcher.dart';
-import '../domain/orb_strategy.dart';
 import '../domain/scan_pipeline.dart';
 import '../domain/scanner.dart';
 import '../domain/stop_manager.dart';
 import '../domain/strategy.dart';
-import '../domain/trend_pullback_strategy.dart';
+import '../domain/strategy_registry.dart';
 import 'notification_service.dart';
 
 const _kPeriodicTask = 'apex_periodic_scan';
@@ -65,19 +64,8 @@ void backgroundCallbackDispatcher() {
       // wait for a foreground session.
       final isPaper = settings.tradingMode == TradingMode.paper;
       final liveBroker = TradingRepository(api);
-      final TradingStrategy strategy;
-      switch (settings.strategyId) {
-        case 'orb':
-          strategy = const OrbStrategy();
-          break;
-        case 'pullback':
-          strategy = const TrendPullbackStrategy();
-          break;
-        case 'apex':
-        default:
-          strategy = const ApexConfluenceStrategy();
-          break;
-      }
+      final TradingStrategy strategy =
+          StrategyRegistry.fromId(settings.strategyId);
       final pipeline = ScanPipeline(
         scanner: MarketScanner(api, strategy),
         broker: liveBroker,

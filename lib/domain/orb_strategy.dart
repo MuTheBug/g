@@ -1,4 +1,5 @@
 import '../data/models/candle.dart';
+import '../data/models/timeframe.dart';
 import 'indicators.dart';
 import 'strategy.dart';
 
@@ -69,6 +70,20 @@ class OrbStrategy extends TradingStrategy {
       'volume-confirmed breakout with SL at opposite range edge.';
   @override
   int get warmupBars => 220;
+
+  // ORB needs short intraday bars to define an opening range and detect
+  // the breakout — 1h+ LTFs would collapse the range into ~1 bar.
+  @override
+  Set<Timeframe> get supportedLtf => const {Timeframe.m5, Timeframe.m15};
+
+  @override
+  Set<Timeframe> get supportedMtf => const {
+        Timeframe.m30,
+        Timeframe.h1,
+      };
+
+  @override
+  Set<Timeframe> get supportedHtf => const {Timeframe.h4, Timeframe.d1};
 
   static const _msPerDay = 24 * 60 * 60 * 1000;
   static const _msPerMin = 60 * 1000;

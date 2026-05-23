@@ -3,38 +3,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/models/backtest_result.dart';
 import '../../data/models/timeframe.dart';
 import '../../domain/backtest_engine.dart';
-import '../../domain/orb_strategy.dart';
 import '../../domain/strategy.dart';
-import '../../domain/trend_pullback_strategy.dart';
+import '../../domain/strategy_registry.dart';
 import '../../providers.dart';
 
-/// Resolve a strategy id to its instance. Centralised so backtest +
-/// sweep + scan pipeline all map ids the same way (and adding a new
-/// strategy means changing one place).
-TradingStrategy strategyFromId(String id) {
-  switch (id) {
-    case 'orb':
-      return const OrbStrategy();
-    case 'pullback':
-      return const TrendPullbackStrategy();
-    case 'apex':
-    default:
-      return const ApexConfluenceStrategy();
-  }
-}
-
-/// Human label for badges + radio rows. Single source of truth.
-String strategyLabelFromId(String id) {
-  switch (id) {
-    case 'orb':
-      return 'Opening Range Breakout';
-    case 'pullback':
-      return 'Trend Pullback';
-    case 'apex':
-    default:
-      return 'Apex Confluence';
-  }
-}
+/// Thin wrappers over [StrategyRegistry] preserved so older callers that
+/// import these names from backtest_controller keep working.
+TradingStrategy strategyFromId(String id) => StrategyRegistry.fromId(id);
+String strategyLabelFromId(String id) => StrategyRegistry.labelFromId(id);
 
 class BacktestState {
   const BacktestState({

@@ -5,6 +5,8 @@ import 'package:intl/intl.dart';
 import '../../core/theme.dart';
 import '../../data/models/symbol_performance.dart';
 import '../../data/models/timeframe.dart';
+import '../../domain/strategy.dart';
+import '../../domain/strategy_registry.dart';
 import '../../providers.dart';
 import '../../widgets/common.dart';
 import 'sweep_controller.dart';
@@ -29,12 +31,24 @@ class _SweepScreenState extends ConsumerState<SweepScreen> {
   bool _useWatchlist = false;
   final Set<Timeframe> _ltfs = {Timeframe.m15, Timeframe.h1};
 
-  static const _availableLtfs = <Timeframe>[
-    Timeframe.m5,
-    Timeframe.m15,
-    Timeframe.m30,
-    Timeframe.h1,
-  ];
+  TradingStrategy get _strategyForTfs => StrategyRegistry.fromId(_strategyId);
+
+  /// LTF chips the user can actually select — restricted to the
+  /// strategy's supported set. When the user picks a new strategy we
+  /// drop any selected LTFs that fell off the new list.
+  List<Timeframe> get _availableLtfs {
+    final allowed = _strategyForTfs.supportedLtf.toList()
+      ..sort((a, b) => a.millis.compareTo(b.millis));
+    return allowed;
+  }
+
+  void _coerceLtfsToStrategy() {
+    final allowed = _strategyForTfs.supportedLtf;
+    _ltfs.removeWhere((tf) => !allowed.contains(tf));
+    if (_ltfs.isEmpty && allowed.isNotEmpty) {
+      _ltfs.add(_availableLtfs.first);
+    }
+  }
 
   @override
   void initState() {
@@ -157,17 +171,16 @@ class _SweepScreenState extends ConsumerState<SweepScreen> {
           Wrap(
             spacing: 6,
             children: [
-              for (final entry in const [
-                ('apex', 'Apex Confluence'),
-                ('orb', 'Opening Range Breakout'),
-                ('pullback', 'Trend Pullback'),
-              ])
+              for (final d in StrategyRegistry.all)
                 ChoiceChip(
-                  label: Text(entry.$2),
-                  selected: _strategyId == entry.$1,
+                  label: Text(d.displayName),
+                  selected: _strategyId == d.id,
                   onSelected: running
                       ? null
-                      : (_) => setState(() => _strategyId = entry.$1),
+                      : (_) => setState(() {
+                            _strategyId = d.id;
+                            _coerceLtfsToStrategy();
+                          }),
                 ),
             ],
           ),

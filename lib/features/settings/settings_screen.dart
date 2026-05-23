@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import '../../core/theme.dart';
 import '../../data/models/scan_record.dart';
 import '../../data/repositories/settings_repository.dart';
+import '../../domain/strategy_registry.dart';
 import '../../providers.dart';
 import '../../services/background_service.dart';
 import '../../services/foreground_service.dart';
@@ -212,46 +213,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 style: TextStyle(color: ApexColors.textMuted, fontSize: 12.5),
               ),
               const SizedBox(height: 8),
-              RadioListTile<String>(
-                value: 'apex',
-                groupValue: s.strategyId,
-                onChanged: (v) =>
-                    notifier.update((st) => st.copyWith(strategyId: v)),
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Apex Confluence (default)'),
-                subtitle: const Text(
-                  '11-factor weighted vote across HTF/MTF/LTF + ADX + volume + '
-                  'pattern. The original strategy — your current best.',
-                  style: TextStyle(color: ApexColors.textMuted, fontSize: 12),
+              for (final d in StrategyRegistry.all)
+                RadioListTile<String>(
+                  value: d.id,
+                  groupValue: s.strategyId,
+                  onChanged: (v) =>
+                      notifier.update((st) => st.copyWith(strategyId: v)),
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(d.displayName +
+                      (d.id == 'apex' ? ' (default)' : '')),
+                  subtitle: Text(
+                    d.create().description,
+                    style: const TextStyle(
+                        color: ApexColors.textMuted, fontSize: 12),
+                  ),
                 ),
-              ),
-              RadioListTile<String>(
-                value: 'orb',
-                groupValue: s.strategyId,
-                onChanged: (v) =>
-                    notifier.update((st) => st.copyWith(strategyId: v)),
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Opening Range Breakout'),
-                subtitle: const Text(
-                  'UTC-anchored opening range. First 30 min defines the range; '
-                  'volume-confirmed breakout fires the trade with SL at the '
-                  'opposite range edge.',
-                  style: TextStyle(color: ApexColors.textMuted, fontSize: 12),
-                ),
-              ),
-              RadioListTile<String>(
-                value: 'pullback',
-                groupValue: s.strategyId,
-                onChanged: (v) =>
-                    notifier.update((st) => st.copyWith(strategyId: v)),
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Trend Pullback'),
-                subtitle: const Text(
-                  'HTF trend → MTF pullback → LTF reversal candle. Tighter SL '
-                  'at trigger-low, TP1 at recent swing high.',
-                  style: TextStyle(color: ApexColors.textMuted, fontSize: 12),
-                ),
-              ),
             ],
           ),
         ),

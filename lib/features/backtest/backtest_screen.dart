@@ -6,6 +6,7 @@ import '../../core/theme.dart';
 import '../../data/models/backtest_result.dart';
 import '../../data/models/timeframe.dart';
 import '../../domain/strategy.dart';
+import '../../domain/strategy_registry.dart';
 import '../../widgets/common.dart';
 import '../../widgets/equity_curve_painter.dart';
 import 'backtest_controller.dart';
@@ -34,6 +35,34 @@ class _BacktestScreenState extends ConsumerState<BacktestScreen> {
     _balanceCtrl.dispose();
     _marginCtrl.dispose();
     super.dispose();
+  }
+
+  /// Instance of the currently-selected strategy used only to read its
+  /// supported-timeframe sets. Strategies are stateless / const so this
+  /// is cheap to call on every build.
+  TradingStrategy get _strategyForTfs => StrategyRegistry.fromId(_strategyId);
+
+  /// Sort TF options by ascending duration for predictable chip order.
+  List<Timeframe> _sortedTfList(Set<Timeframe> tfs) {
+    final out = tfs.toList()..sort((a, b) => a.millis.compareTo(b.millis));
+    return out;
+  }
+
+  /// When the user picks a new strategy whose supported TFs don't
+  /// include the currently-selected HTF/MTF/LTF, snap each to the
+  /// first supported value so the run doesn't fail with "unsupported
+  /// timeframe" later.
+  void _coerceTimeframesToStrategy() {
+    final s = _strategyForTfs;
+    if (!s.supportedHtf.contains(_htf)) {
+      _htf = _sortedTfList(s.supportedHtf).first;
+    }
+    if (!s.supportedMtf.contains(_mtf)) {
+      _mtf = _sortedTfList(s.supportedMtf).first;
+    }
+    if (!s.supportedLtf.contains(_ltf)) {
+      _ltf = _sortedTfList(s.supportedLtf).first;
+    }
   }
 
   Future<void> _run() async {
@@ -98,24 +127,23 @@ class _BacktestScreenState extends ConsumerState<BacktestScreen> {
           Text('Backtest parameters',
               style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
-          // Per-run strategy override so you can A/B test any of the
-          // three strategies on the same window without touching Settings.
+          // Per-run strategy override so you can A/B test any strategy
+          // on the same window without touching Settings.
           const Text('Strategy',
               style: TextStyle(color: ApexColors.textMuted, fontSize: 12)),
           Wrap(
             spacing: 6,
             children: [
-              for (final entry in const [
-                ('apex', 'Apex Confluence'),
-                ('orb', 'Opening Range Breakout'),
-                ('pullback', 'Trend Pullback'),
-              ])
+              for (final d in StrategyRegistry.all)
                 ChoiceChip(
-                  label: Text(entry.$2),
-                  selected: _strategyId == entry.$1,
+                  label: Text(d.displayName),
+                  selected: _strategyId == d.id,
                   onSelected: running
                       ? null
-                      : (_) => setState(() => _strategyId = entry.$1),
+                      : (_) => setState(() {
+                            _strategyId = d.id;
+                            _coerceTimeframesToStrategy();
+                          }),
                 ),
             ],
           ),
@@ -167,13 +195,14 @@ class _BacktestScreenState extends ConsumerState<BacktestScreen> {
             onChanged: (v) => setState(() => _daysBack = v.round()),
           ),
           const SizedBox(height: 6),
-          _tfRow('HTF', _htf, [Timeframe.h1, Timeframe.h4, Timeframe.d1],
+          // TF options filtered to what the selected strategy supports —
+          // ORB e.g. only exposes 5m / 15m LTFs because the OR window
+          // collapses to ~1 bar on 1h.
+          _tfRow('HTF', _htf, _sortedTfList(_strategyForTfs.supportedHtf),
               (v) => setState(() => _htf = v)),
-          _tfRow('MTF', _mtf,
-              [Timeframe.m15, Timeframe.m30, Timeframe.h1, Timeframe.h4],
+          _tfRow('MTF', _mtf, _sortedTfList(_strategyForTfs.supportedMtf),
               (v) => setState(() => _mtf = v)),
-          _tfRow('LTF', _ltf,
-              [Timeframe.m1, Timeframe.m5, Timeframe.m15, Timeframe.m30],
+          _tfRow('LTF', _ltf, _sortedTfList(_strategyForTfs.supportedLtf),
               (v) => setState(() => _ltf = v)),
           const SizedBox(height: 12),
           SizedBox(
