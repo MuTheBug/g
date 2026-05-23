@@ -213,28 +213,42 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
               const SizedBox(height: 8),
               RadioListTile<String>(
-                value: 'pullback',
-                groupValue: s.strategyId,
-                onChanged: (v) =>
-                    notifier.update((st) => st.copyWith(strategyId: v)),
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Trend Pullback (recommended)'),
-                subtitle: const Text(
-                  'HTF trend → MTF pullback → LTF reversal candle. Tighter SL at trigger-low, '
-                  'TP1 at recent swing high. Fewer trades, higher conviction.',
-                  style: TextStyle(color: ApexColors.textMuted, fontSize: 12),
-                ),
-              ),
-              RadioListTile<String>(
                 value: 'apex',
                 groupValue: s.strategyId,
                 onChanged: (v) =>
                     notifier.update((st) => st.copyWith(strategyId: v)),
                 contentPadding: EdgeInsets.zero,
-                title: const Text('Apex Confluence (legacy)'),
+                title: const Text('Apex Confluence (default)'),
                 subtitle: const Text(
-                  '11-factor weighted vote. The original strategy — kept as a '
-                  'fallback while we validate the new one.',
+                  '11-factor weighted vote across HTF/MTF/LTF + ADX + volume + '
+                  'pattern. The original strategy — your current best.',
+                  style: TextStyle(color: ApexColors.textMuted, fontSize: 12),
+                ),
+              ),
+              RadioListTile<String>(
+                value: 'orb',
+                groupValue: s.strategyId,
+                onChanged: (v) =>
+                    notifier.update((st) => st.copyWith(strategyId: v)),
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Opening Range Breakout'),
+                subtitle: const Text(
+                  'UTC-anchored opening range. First 30 min defines the range; '
+                  'volume-confirmed breakout fires the trade with SL at the '
+                  'opposite range edge.',
+                  style: TextStyle(color: ApexColors.textMuted, fontSize: 12),
+                ),
+              ),
+              RadioListTile<String>(
+                value: 'pullback',
+                groupValue: s.strategyId,
+                onChanged: (v) =>
+                    notifier.update((st) => st.copyWith(strategyId: v)),
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Trend Pullback'),
+                subtitle: const Text(
+                  'HTF trend → MTF pullback → LTF reversal candle. Tighter SL '
+                  'at trigger-low, TP1 at recent swing high.',
                   style: TextStyle(color: ApexColors.textMuted, fontSize: 12),
                 ),
               ),

@@ -26,7 +26,7 @@ class _BacktestScreenState extends ConsumerState<BacktestScreen> {
   Timeframe _mtf = Timeframe.h1;
   Timeframe _ltf = Timeframe.m15;
   int _daysBack = 30;
-  String _strategyId = 'pullback';
+  String _strategyId = 'apex';
 
   @override
   void dispose() {
@@ -77,8 +77,7 @@ class _BacktestScreenState extends ConsumerState<BacktestScreen> {
             _StatsCard(
               result: state.result!,
               startingBalance: double.tryParse(_balanceCtrl.text) ?? 10000,
-              strategyLabel:
-                  _strategyId == 'apex' ? 'Apex Confluence' : 'Trend Pullback',
+              strategyLabel: strategyLabelFromId(_strategyId),
             ),
             const SizedBox(height: 10),
             _EquityCard(result: state.result!),
@@ -99,27 +98,25 @@ class _BacktestScreenState extends ConsumerState<BacktestScreen> {
           Text('Backtest parameters',
               style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
-          // Per-run strategy override so you can A/B test ACS vs TPS on
-          // the same window without touching the global Settings.
+          // Per-run strategy override so you can A/B test any of the
+          // three strategies on the same window without touching Settings.
           const Text('Strategy',
               style: TextStyle(color: ApexColors.textMuted, fontSize: 12)),
           Wrap(
             spacing: 6,
             children: [
-              ChoiceChip(
-                label: const Text('Trend Pullback'),
-                selected: _strategyId == 'pullback',
-                onSelected: running
-                    ? null
-                    : (_) => setState(() => _strategyId = 'pullback'),
-              ),
-              ChoiceChip(
-                label: const Text('Apex Confluence'),
-                selected: _strategyId == 'apex',
-                onSelected: running
-                    ? null
-                    : (_) => setState(() => _strategyId = 'apex'),
-              ),
+              for (final entry in const [
+                ('apex', 'Apex Confluence'),
+                ('orb', 'Opening Range Breakout'),
+                ('pullback', 'Trend Pullback'),
+              ])
+                ChoiceChip(
+                  label: Text(entry.$2),
+                  selected: _strategyId == entry.$1,
+                  onSelected: running
+                      ? null
+                      : (_) => setState(() => _strategyId = entry.$1),
+                ),
             ],
           ),
           const SizedBox(height: 8),

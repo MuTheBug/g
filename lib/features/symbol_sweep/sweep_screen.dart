@@ -23,7 +23,7 @@ class _SweepScreenState extends ConsumerState<SweepScreen> {
   int _topN = 30;
   int _lookbackDays = 30;
   int _minTrades = 8;
-  String _strategyId = 'pullback';
+  String _strategyId = 'apex';
   double _minPf = 1.0;
   bool _applyToScanner = true;
   bool _useWatchlist = false;
@@ -150,27 +150,25 @@ class _SweepScreenState extends ConsumerState<SweepScreen> {
         children: [
           Text('Parameters', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 6),
-          // Per-run strategy override — independent of Settings so you can
-          // sweep both ACS and TPS and compare validated sets.
+          // Per-run strategy override — independent of Settings so the
+          // sweep can validate symbols against any of the three.
           const Text('Strategy',
               style: TextStyle(color: ApexColors.textMuted, fontSize: 12)),
           Wrap(
             spacing: 6,
             children: [
-              ChoiceChip(
-                label: const Text('Trend Pullback'),
-                selected: _strategyId == 'pullback',
-                onSelected: running
-                    ? null
-                    : (_) => setState(() => _strategyId = 'pullback'),
-              ),
-              ChoiceChip(
-                label: const Text('Apex Confluence'),
-                selected: _strategyId == 'apex',
-                onSelected: running
-                    ? null
-                    : (_) => setState(() => _strategyId = 'apex'),
-              ),
+              for (final entry in const [
+                ('apex', 'Apex Confluence'),
+                ('orb', 'Opening Range Breakout'),
+                ('pullback', 'Trend Pullback'),
+              ])
+                ChoiceChip(
+                  label: Text(entry.$2),
+                  selected: _strategyId == entry.$1,
+                  onSelected: running
+                      ? null
+                      : (_) => setState(() => _strategyId = entry.$1),
+                ),
             ],
           ),
           const SizedBox(height: 6),

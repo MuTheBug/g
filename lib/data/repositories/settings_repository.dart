@@ -28,7 +28,7 @@ class AppSettings {
     this.lockInProfits = true,
     this.moveToBeAfterTp1 = true,
     this.moveToTp1AfterTp2 = true,
-    this.strategyId = 'pullback',
+    this.strategyId = 'apex',
   });
 
   final int scanLimit;
@@ -67,9 +67,9 @@ class AppSettings {
   final bool moveToBeAfterTp1;
   final bool moveToTp1AfterTp2;
 
-  /// One of: 'apex' (the original 11-factor confluence) or 'pullback' (the
-  /// newer trend-pullback strategy). Default is 'pullback' because ACS has
-  /// been bleeding equity on this account.
+  /// One of: 'apex' (Apex Confluence — 11-factor weighted vote),
+  /// 'pullback' (Trend Pullback — structural), or 'orb' (Opening Range
+  /// Breakout — UTC session). Default 'apex'.
   final String strategyId;
 
   AppSettings copyWith({
@@ -192,7 +192,7 @@ class SettingsRepository {
         lockInProfits: p.getBool(_kLockProfits) ?? true,
         moveToBeAfterTp1: p.getBool(_kBeAfterTp1) ?? true,
         moveToTp1AfterTp2: p.getBool(_kTp1AfterTp2) ?? true,
-        strategyId: p.getString(_kStrategyId) ?? 'pullback',
+        strategyId: p.getString(_kStrategyId) ?? 'apex',
       );
     } catch (_) {
       return const AppSettings();

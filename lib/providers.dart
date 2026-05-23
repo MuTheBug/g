@@ -13,6 +13,7 @@ import 'data/streams/mark_price_stream.dart';
 import 'data/streams/ticker_stream.dart';
 import 'data/streams/user_data_stream.dart';
 import 'domain/auto_trader.dart';
+import 'domain/orb_strategy.dart';
 import 'domain/position_close_watcher.dart';
 import 'domain/scan_pipeline.dart';
 import 'domain/scanner.dart';
@@ -84,13 +85,15 @@ final tradingRepoProvider = Provider<Broker>((ref) {
 });
 
 final strategyProvider = Provider<TradingStrategy>((ref) {
-  final id = ref.watch(settingsProvider).valueOrNull?.strategyId ?? 'pullback';
+  final id = ref.watch(settingsProvider).valueOrNull?.strategyId ?? 'apex';
   switch (id) {
-    case 'apex':
-      return const ApexConfluenceStrategy();
+    case 'orb':
+      return const OrbStrategy();
     case 'pullback':
-    default:
       return const TrendPullbackStrategy();
+    case 'apex':
+    default:
+      return const ApexConfluenceStrategy();
   }
 });
 
