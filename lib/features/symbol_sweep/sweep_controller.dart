@@ -5,6 +5,7 @@ import '../../data/models/timeframe.dart';
 import '../../data/repositories/symbol_performance_repository.dart';
 import '../../domain/backtest_sweeper.dart';
 import '../../providers.dart';
+import '../backtest/backtest_controller.dart' show strategyFromId;
 
 class SweepState {
   const SweepState({
@@ -87,6 +88,7 @@ class SweepController extends Notifier<SweepState> {
     int minTrades = 8,
     double minProfitFactor = 1.0,
     bool applyToScanner = false,
+    String? strategyId,
   }) async {
     if (state.running) return;
     _cancelRequested = false;
@@ -98,9 +100,13 @@ class SweepController extends Notifier<SweepState> {
       currentLtf: ltfCandidates.isEmpty ? null : ltfCandidates.first,
     );
     try {
+      // Same per-run override pattern as the Backtest screen.
+      final activeStrategy = strategyId != null
+          ? strategyFromId(strategyId)
+          : ref.read(strategyProvider);
       final sweeper = BacktestSweeper(
         api: ref.read(binanceApiProvider),
-        strategy: ref.read(strategyProvider),
+        strategy: activeStrategy,
       );
       final results = await sweeper.run(
         SweepConfig(

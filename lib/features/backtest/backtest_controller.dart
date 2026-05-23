@@ -3,7 +3,22 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/models/backtest_result.dart';
 import '../../data/models/timeframe.dart';
 import '../../domain/backtest_engine.dart';
+import '../../domain/strategy.dart';
+import '../../domain/trend_pullback_strategy.dart';
 import '../../providers.dart';
+
+/// Resolve a strategy id ('apex' / 'pullback') to its instance.
+/// Centralised so backtest + sweep + scan pipeline all map ids the same
+/// way (and adding a third strategy means changing one place).
+TradingStrategy strategyFromId(String id) {
+  switch (id) {
+    case 'apex':
+      return const ApexConfluenceStrategy();
+    case 'pullback':
+    default:
+      return const TrendPullbackStrategy();
+  }
+}
 
 class BacktestState {
   const BacktestState({
@@ -52,6 +67,7 @@ class BacktestController extends Notifier<BacktestState> {
     required double startingBalance,
     required double marginPerTradeUsdt,
     required int leverage,
+    String? strategyId,
   }) async {
     if (state.running) return;
     state = state.copyWith(
@@ -62,9 +78,14 @@ class BacktestController extends Notifier<BacktestState> {
       clearResult: true,
     );
     try {
+      // Per-run strategy override — lets the user A/B test without
+      // touching Settings. Defaults to whatever's active globally.
+      final activeStrategy = strategyId != null
+          ? strategyFromId(strategyId)
+          : ref.read(strategyProvider);
       final engine = BacktestEngine(
         api: ref.read(binanceApiProvider),
-        strategy: ref.read(strategyProvider),
+        strategy: activeStrategy,
       );
       final result = await engine.run(
         BacktestConfig(

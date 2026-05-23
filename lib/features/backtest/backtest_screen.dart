@@ -26,6 +26,7 @@ class _BacktestScreenState extends ConsumerState<BacktestScreen> {
   Timeframe _mtf = Timeframe.h1;
   Timeframe _ltf = Timeframe.m15;
   int _daysBack = 30;
+  String _strategyId = 'pullback';
 
   @override
   void dispose() {
@@ -52,6 +53,7 @@ class _BacktestScreenState extends ConsumerState<BacktestScreen> {
           startingBalance: balance,
           marginPerTradeUsdt: margin,
           leverage: _leverage,
+          strategyId: _strategyId,
         );
   }
 
@@ -72,7 +74,12 @@ class _BacktestScreenState extends ConsumerState<BacktestScreen> {
           ],
           if (state.result != null) ...[
             const SizedBox(height: 10),
-            _StatsCard(result: state.result!, startingBalance: double.tryParse(_balanceCtrl.text) ?? 10000),
+            _StatsCard(
+              result: state.result!,
+              startingBalance: double.tryParse(_balanceCtrl.text) ?? 10000,
+              strategyLabel:
+                  _strategyId == 'apex' ? 'Apex Confluence' : 'Trend Pullback',
+            ),
             const SizedBox(height: 10),
             _EquityCard(result: state.result!),
             const SizedBox(height: 10),
@@ -91,6 +98,30 @@ class _BacktestScreenState extends ConsumerState<BacktestScreen> {
         children: [
           Text('Backtest parameters',
               style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 8),
+          // Per-run strategy override so you can A/B test ACS vs TPS on
+          // the same window without touching the global Settings.
+          const Text('Strategy',
+              style: TextStyle(color: ApexColors.textMuted, fontSize: 12)),
+          Wrap(
+            spacing: 6,
+            children: [
+              ChoiceChip(
+                label: const Text('Trend Pullback'),
+                selected: _strategyId == 'pullback',
+                onSelected: running
+                    ? null
+                    : (_) => setState(() => _strategyId = 'pullback'),
+              ),
+              ChoiceChip(
+                label: const Text('Apex Confluence'),
+                selected: _strategyId == 'apex',
+                onSelected: running
+                    ? null
+                    : (_) => setState(() => _strategyId = 'apex'),
+              ),
+            ],
+          ),
           const SizedBox(height: 8),
           TextField(
             controller: _symbolCtrl,
@@ -215,9 +246,14 @@ class _BacktestScreenState extends ConsumerState<BacktestScreen> {
 }
 
 class _StatsCard extends StatelessWidget {
-  const _StatsCard({required this.result, required this.startingBalance});
+  const _StatsCard({
+    required this.result,
+    required this.startingBalance,
+    required this.strategyLabel,
+  });
   final BacktestResult result;
   final double startingBalance;
+  final String strategyLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -226,7 +262,24 @@ class _StatsCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Result', style: Theme.of(context).textTheme.titleMedium),
+          Row(
+            children: [
+              Text('Result', style: Theme.of(context).textTheme.titleMedium),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: ApexColors.surfaceVariant,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  strategyLabel,
+                  style: const TextStyle(
+                      color: ApexColors.textMuted, fontSize: 11),
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 8),
           Row(children: [
             Expanded(

@@ -23,6 +23,7 @@ class _SweepScreenState extends ConsumerState<SweepScreen> {
   int _topN = 30;
   int _lookbackDays = 30;
   int _minTrades = 8;
+  String _strategyId = 'pullback';
   double _minPf = 1.0;
   bool _applyToScanner = true;
   bool _useWatchlist = false;
@@ -104,6 +105,7 @@ class _SweepScreenState extends ConsumerState<SweepScreen> {
           minTrades: _minTrades,
           minProfitFactor: _minPf,
           applyToScanner: _applyToScanner,
+          strategyId: _strategyId,
         );
   }
 
@@ -147,6 +149,30 @@ class _SweepScreenState extends ConsumerState<SweepScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text('Parameters', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 6),
+          // Per-run strategy override — independent of Settings so you can
+          // sweep both ACS and TPS and compare validated sets.
+          const Text('Strategy',
+              style: TextStyle(color: ApexColors.textMuted, fontSize: 12)),
+          Wrap(
+            spacing: 6,
+            children: [
+              ChoiceChip(
+                label: const Text('Trend Pullback'),
+                selected: _strategyId == 'pullback',
+                onSelected: running
+                    ? null
+                    : (_) => setState(() => _strategyId = 'pullback'),
+              ),
+              ChoiceChip(
+                label: const Text('Apex Confluence'),
+                selected: _strategyId == 'apex',
+                onSelected: running
+                    ? null
+                    : (_) => setState(() => _strategyId = 'apex'),
+              ),
+            ],
+          ),
           const SizedBox(height: 6),
           Row(children: [
             const Text('Symbols: '),
