@@ -104,11 +104,33 @@ class HybridMtfRenkoStrategy extends TradingStrategy {
   /// without recompiling.
   final Map<String, HybridMtfRenkoStrategy> perSymbolOverrides;
 
-  /// Per-symbol param sets from the v2 optimizer. Each major was tuned
+  /// Per-symbol param sets from the v2 optimizer. Each symbol was tuned
   /// independently on the 70/30 train/test slice; these are the
   /// winners. Symbol lookup uses Binance's live format
   /// (e.g. 'BTCUSDT', no underscore — the data CSVs use 'BTC_USDT').
+  /// On the 1.2-year test slice across all 10 majors this set totalled
+  /// +$567 USDT net P&L (every symbol profitable, avg WR 52 %).
   static const Map<String, HybridMtfRenkoStrategy> _defaultOverrides = {
+    'ADAUSDT': HybridMtfRenkoStrategy(
+      smallMult: 0.7,
+      mediumMult: 1.5,
+      largeMult: 3.0,
+      smallFreshFlipWithin: 3,
+      mediumMinRun: 2,
+      minVolumeSurge: 1.0,
+      requireHtfAlignment: true,
+      atrFloorMult: 1.0,
+    ),
+    'AVAXUSDT': HybridMtfRenkoStrategy(
+      smallMult: 0.5,
+      mediumMult: 1.5,
+      largeMult: 4.0,
+      smallFreshFlipWithin: 3,
+      mediumMinRun: 2,
+      minVolumeSurge: 1.0,
+      requireHtfAlignment: false,
+      atrFloorMult: 0.0,
+    ),
     'BNBUSDT': HybridMtfRenkoStrategy(
       smallMult: 1.0,
       mediumMult: 2.5,
@@ -129,6 +151,26 @@ class HybridMtfRenkoStrategy extends TradingStrategy {
       requireHtfAlignment: true,
       atrFloorMult: 1.0,
     ),
+    'DOGEUSDT': HybridMtfRenkoStrategy(
+      smallMult: 1.0,
+      mediumMult: 3.0,
+      largeMult: 6.0,
+      smallFreshFlipWithin: 2,
+      mediumMinRun: 3,
+      minVolumeSurge: 1.0,
+      requireHtfAlignment: false,
+      atrFloorMult: 0.0,
+    ),
+    'DOTUSDT': HybridMtfRenkoStrategy(
+      smallMult: 1.2,
+      mediumMult: 3.0,
+      largeMult: 6.0,
+      smallFreshFlipWithin: 3,
+      mediumMinRun: 3,
+      minVolumeSurge: 1.0,
+      requireHtfAlignment: true,
+      atrFloorMult: 0.8,
+    ),
     'ETHUSDT': HybridMtfRenkoStrategy(
       smallMult: 1.0,
       mediumMult: 2.5,
@@ -138,6 +180,16 @@ class HybridMtfRenkoStrategy extends TradingStrategy {
       minVolumeSurge: 1.0,
       requireHtfAlignment: false,
       atrFloorMult: 1.0,
+    ),
+    'LINKUSDT': HybridMtfRenkoStrategy(
+      smallMult: 1.2,
+      mediumMult: 3.0,
+      largeMult: 6.0,
+      smallFreshFlipWithin: 2,
+      mediumMinRun: 2,
+      minVolumeSurge: 1.0,
+      requireHtfAlignment: true,
+      atrFloorMult: 0.8,
     ),
     'SOLUSDT': HybridMtfRenkoStrategy(
       smallMult: 1.2,

@@ -1,9 +1,9 @@
 {
   "global_winner": {
     "params": {
-      "small_mult": 1.0,
-      "medium_mult": 3.0,
-      "large_mult": 6.0,
+      "small_mult": 0.5,
+      "medium_mult": 1.5,
+      "large_mult": 4.0,
       "small_fresh_flip_within": 3,
       "medium_min_run": 2,
       "large_min_run": 2,
@@ -11,62 +11,179 @@
       "min_volume_surge": 1.0,
       "min_confidence": 70,
       "require_htf_alignment": false,
-      "atr_floor_mult": 0.6
+      "atr_floor_mult": 0.0
     },
-    "train_median_composite": 7.377630943234454,
-    "test_median_composite": 6.556564022698153,
-    "overfit_gap": 0.11129140598842881,
-    "test_trades_total": 506,
-    "test_net_pnl_total": -13.412225170590318,
+    "train_median_composite": 9.900857433212117,
+    "test_median_composite": 6.591605891277246,
+    "overfit_gap": 0.3342388842843136,
+    "test_trades_total": 1776,
+    "test_net_pnl_total": -333.29464342117353,
     "per_symbol_test": {
+      "ADA_USDT": {
+        "trades": 162,
+        "wins": 56,
+        "net_pnl": -89.8966508014455,
+        "win_rate": 0.345679012345679,
+        "profit_factor": 0.7142028193996223,
+        "expectancy_r": -0.13580246913580676,
+        "max_dd_pct": 0.9444890305430125
+      },
+      "AVAX_USDT": {
+        "trades": 173,
+        "wins": 78,
+        "net_pnl": 31.574647204444773,
+        "win_rate": 0.4508670520231214,
+        "profit_factor": 1.1121171310772018,
+        "expectancy_r": 0.12716763005779833,
+        "max_dd_pct": 0.35046896974015745
+      },
       "BNB_USDT": {
-        "trades": 90,
-        "wins": 37,
-        "net_pnl": -12.844088552479661,
-        "win_rate": 0.4111111111111111,
-        "profit_factor": 0.9219553104919507,
-        "expectancy_r": 0.027777777777778605,
-        "max_dd_pct": 0.3287348244095987
+        "trades": 159,
+        "wins": 64,
+        "net_pnl": -33.84527586296463,
+        "win_rate": 0.4025157232704403,
+        "profit_factor": 0.7930843026583743,
+        "expectancy_r": 0.00628930817610369,
+        "max_dd_pct": 0.42623533006683906
       },
       "BTC_USDT": {
-        "trades": 105,
-        "wins": 40,
-        "net_pnl": -44.665398113089395,
-        "win_rate": 0.38095238095238093,
-        "profit_factor": 0.7750704553246255,
-        "expectancy_r": -0.047619047619050295,
-        "max_dd_pct": 0.5780201162454668
+        "trades": 212,
+        "wins": 73,
+        "net_pnl": -89.41681020150827,
+        "win_rate": 0.3443396226415094,
+        "profit_factor": 0.6111005225964486,
+        "expectancy_r": -0.13915094339622644,
+        "max_dd_pct": 0.9361939234683179
+      },
+      "DOGE_USDT": {
+        "trades": 159,
+        "wins": 66,
+        "net_pnl": -26.692639716598933,
+        "win_rate": 0.41509433962264153,
+        "profit_factor": 0.8978333794663937,
+        "expectancy_r": 0.03773584905660471,
+        "max_dd_pct": 0.5835682418585891
+      },
+      "DOT_USDT": {
+        "trades": 181,
+        "wins": 87,
+        "net_pnl": 9.572630030526852,
+        "win_rate": 0.48066298342541436,
+        "profit_factor": 1.0294551352817687,
+        "expectancy_r": 0.20165745856353787,
+        "max_dd_pct": 0.7509771739107717
       },
       "ETH_USDT": {
-        "trades": 96,
-        "wins": 37,
-        "net_pnl": -30.102233595012876,
-        "win_rate": 0.3854166666666667,
-        "profit_factor": 0.8773091667941839,
-        "expectancy_r": -0.036458333333334425,
-        "max_dd_pct": 0.6204617585557152
+        "trades": 180,
+        "wins": 70,
+        "net_pnl": -52.627924312415416,
+        "win_rate": 0.3888888888888889,
+        "profit_factor": 0.8000705522014732,
+        "expectancy_r": -0.027777777777777832,
+        "max_dd_pct": 0.6323026029853178
+      },
+      "LINK_USDT": {
+        "trades": 185,
+        "wins": 75,
+        "net_pnl": -35.642878710679724,
+        "win_rate": 0.40540540540540543,
+        "profit_factor": 0.8895630762833114,
+        "expectancy_r": 0.013513513513514186,
+        "max_dd_pct": 0.6696046038699227
       },
       "SOL_USDT": {
-        "trades": 117,
-        "wins": 57,
-        "net_pnl": 76.61184435625546,
-        "win_rate": 0.48717948717948717,
-        "profit_factor": 1.2451428142672594,
-        "expectancy_r": 0.21794871794871795,
-        "max_dd_pct": 0.490512962543391
+        "trades": 204,
+        "wins": 81,
+        "net_pnl": -50.06321786701665,
+        "win_rate": 0.39705882352941174,
+        "profit_factor": 0.8506302085438725,
+        "expectancy_r": -0.007352941176467743,
+        "max_dd_pct": 0.6326334792494144
       },
       "XRP_USDT": {
-        "trades": 98,
-        "wins": 41,
-        "net_pnl": -2.4123492662638455,
-        "win_rate": 0.41836734693877553,
-        "profit_factor": 0.9908822778395491,
-        "expectancy_r": 0.04591836734694082,
-        "max_dd_pct": 0.4665462990156262
+        "trades": 161,
+        "wins": 70,
+        "net_pnl": 3.7434768164839625,
+        "win_rate": 0.43478260869565216,
+        "profit_factor": 1.0170669634747276,
+        "expectancy_r": 0.08695652173912326,
+        "max_dd_pct": 0.34438297575381704
       }
     }
   },
   "per_symbol": {
+    "ADA_USDT": {
+      "params": {
+        "small_mult": 0.7,
+        "medium_mult": 1.5,
+        "large_mult": 3.0,
+        "small_fresh_flip_within": 3,
+        "medium_min_run": 2,
+        "large_min_run": 2,
+        "vol_period": 20,
+        "min_volume_surge": 1.0,
+        "min_confidence": 70,
+        "require_htf_alignment": true,
+        "atr_floor_mult": 1.0
+      },
+      "train_composite": 5.6451819831635515,
+      "test_composite": 4.979963990600576,
+      "overfit_gap": 0.11783818387909399,
+      "train_stats": {
+        "trades": 140,
+        "wins": 63,
+        "net_pnl": 18.87992117628346,
+        "win_rate": 0.45,
+        "profit_factor": 1.0615033410418024,
+        "expectancy_r": 0.12500000000000133,
+        "max_dd_pct": 0.6762626903543002
+      },
+      "test_stats": {
+        "trades": 56,
+        "wins": 28,
+        "net_pnl": 41.53028280514627,
+        "win_rate": 0.5,
+        "profit_factor": 1.3317834294051623,
+        "expectancy_r": 0.25000000000000194,
+        "max_dd_pct": 0.311331561638112
+      }
+    },
+    "AVAX_USDT": {
+      "params": {
+        "small_mult": 0.5,
+        "medium_mult": 1.5,
+        "large_mult": 4.0,
+        "small_fresh_flip_within": 3,
+        "medium_min_run": 2,
+        "large_min_run": 2,
+        "vol_period": 20,
+        "min_volume_surge": 1.0,
+        "min_confidence": 70,
+        "require_htf_alignment": false,
+        "atr_floor_mult": 0.0
+      },
+      "train_composite": 9.900857433212117,
+      "test_composite": 6.591605891277246,
+      "overfit_gap": 0.3342388842843136,
+      "train_stats": {
+        "trades": 398,
+        "wins": 182,
+        "net_pnl": 65.49182216078589,
+        "win_rate": 0.457286432160804,
+        "profit_factor": 1.0861191662570586,
+        "expectancy_r": 0.14321608040201214,
+        "max_dd_pct": 0.7629238078999961
+      },
+      "test_stats": {
+        "trades": 173,
+        "wins": 78,
+        "net_pnl": 31.574647204444773,
+        "win_rate": 0.4508670520231214,
+        "profit_factor": 1.1121171310772018,
+        "expectancy_r": 0.12716763005779833,
+        "max_dd_pct": 0.35046896974015745
+      }
+    },
     "BNB_USDT": {
       "params": {
         "small_mult": 1.0,
@@ -139,6 +256,78 @@
         "max_dd_pct": 0.3713877271712035
       }
     },
+    "DOGE_USDT": {
+      "params": {
+        "small_mult": 1.0,
+        "medium_mult": 3.0,
+        "large_mult": 6.0,
+        "small_fresh_flip_within": 2,
+        "medium_min_run": 3,
+        "large_min_run": 2,
+        "vol_period": 20,
+        "min_volume_surge": 1.0,
+        "min_confidence": 70,
+        "require_htf_alignment": false,
+        "atr_floor_mult": 0.0
+      },
+      "train_composite": 6.898088086703496,
+      "test_composite": 6.483674434757386,
+      "overfit_gap": 0.06007659611435215,
+      "train_stats": {
+        "trades": 181,
+        "wins": 83,
+        "net_pnl": 50.86305314492347,
+        "win_rate": 0.4585635359116022,
+        "profit_factor": 1.1195191853679851,
+        "expectancy_r": 0.14640883977900493,
+        "max_dd_pct": 0.8607987188487334
+      },
+      "test_stats": {
+        "trades": 83,
+        "wins": 43,
+        "net_pnl": 79.18464358493111,
+        "win_rate": 0.5180722891566265,
+        "profit_factor": 1.3745004121742248,
+        "expectancy_r": 0.2951807228915693,
+        "max_dd_pct": 0.3779450949224708
+      }
+    },
+    "DOT_USDT": {
+      "params": {
+        "small_mult": 1.2,
+        "medium_mult": 3.0,
+        "large_mult": 6.0,
+        "small_fresh_flip_within": 3,
+        "medium_min_run": 3,
+        "large_min_run": 2,
+        "vol_period": 20,
+        "min_volume_surge": 1.0,
+        "min_confidence": 70,
+        "require_htf_alignment": true,
+        "atr_floor_mult": 0.8
+      },
+      "train_composite": 4.422611350687548,
+      "test_composite": 6.550431151674666,
+      "overfit_gap": 0.324836602617085,
+      "train_stats": {
+        "trades": 81,
+        "wins": 35,
+        "net_pnl": 40.90625819098568,
+        "win_rate": 0.43209876543209874,
+        "profit_factor": 1.138107432985895,
+        "expectancy_r": 0.08024691358024645,
+        "max_dd_pct": 0.336199981315411
+      },
+      "test_stats": {
+        "trades": 36,
+        "wins": 21,
+        "net_pnl": 106.74325208875962,
+        "win_rate": 0.5833333333333334,
+        "profit_factor": 1.8724896190841,
+        "expectancy_r": 0.4583333333333333,
+        "max_dd_pct": 0.3282515119684357
+      }
+    },
     "ETH_USDT": {
       "params": {
         "small_mult": 1.0,
@@ -173,6 +362,42 @@
         "profit_factor": 1.514048638594079,
         "expectancy_r": 0.2946428571428559,
         "max_dd_pct": 0.18858914818025244
+      }
+    },
+    "LINK_USDT": {
+      "params": {
+        "small_mult": 1.2,
+        "medium_mult": 3.0,
+        "large_mult": 6.0,
+        "small_fresh_flip_within": 2,
+        "medium_min_run": 2,
+        "large_min_run": 2,
+        "vol_period": 20,
+        "min_volume_surge": 1.0,
+        "min_confidence": 70,
+        "require_htf_alignment": true,
+        "atr_floor_mult": 0.8
+      },
+      "train_composite": 4.8314185269991805,
+      "test_composite": 5.331483772095386,
+      "overfit_gap": 0.09379476079689342,
+      "train_stats": {
+        "trades": 119,
+        "wins": 52,
+        "net_pnl": 6.983159561656066,
+        "win_rate": 0.4369747899159664,
+        "profit_factor": 1.0160113774208521,
+        "expectancy_r": 0.09243697478991686,
+        "max_dd_pct": 1.1737206756159821
+      },
+      "test_stats": {
+        "trades": 44,
+        "wins": 24,
+        "net_pnl": 70.02460107228944,
+        "win_rate": 0.5454545454545454,
+        "profit_factor": 1.4747250775777414,
+        "expectancy_r": 0.3636363636363628,
+        "max_dd_pct": 0.42723201807528044
       }
     },
     "SOL_USDT": {

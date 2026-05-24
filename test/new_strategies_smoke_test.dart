@@ -92,7 +92,7 @@ void main() {
   group('HybridMtfRenkoStrategy per-symbol overrides', () {
     const renko = HybridMtfRenkoStrategy();
 
-    test('built-in defaults exist for the five tuned majors', () {
+    test('built-in defaults exist for all ten tuned majors', () {
       // effectiveFor returns the override (which has a different
       // smallMult than the global default for at least BTC/SOL).
       final btc = renko.effectiveFor('BTCUSDT');
@@ -101,8 +101,11 @@ void main() {
           reason: 'BTCUSDT override should differ from global default');
       expect(sol.smallMult, isNot(equals(renko.smallMult)),
           reason: 'SOLUSDT override should differ from global default');
-      // Sanity: all 5 majors resolve to non-default instances.
-      for (final s in const ['BNBUSDT', 'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT']) {
+      // Sanity: all 10 majors resolve to non-default instances.
+      for (final s in const [
+        'ADAUSDT', 'AVAXUSDT', 'BNBUSDT', 'BTCUSDT', 'DOGEUSDT',
+        'DOTUSDT', 'ETHUSDT', 'LINKUSDT', 'SOLUSDT', 'XRPUSDT',
+      ]) {
         expect(identical(renko.effectiveFor(s), renko), isFalse,
             reason: '$s should return an override, not `this`');
       }
