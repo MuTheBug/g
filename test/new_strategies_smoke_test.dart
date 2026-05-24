@@ -117,6 +117,19 @@ void main() {
       expect(identical(renko.effectiveFor('UNLISTEDUSDT'), renko), isTrue);
     });
 
+    test('Pulse Scalper has built-in overrides for all 10 majors', () {
+      const scalper = PulseScalperStrategy();
+      for (final s in const [
+        'ADAUSDT', 'AVAXUSDT', 'BNBUSDT', 'BTCUSDT', 'DOGEUSDT',
+        'DOTUSDT', 'ETHUSDT', 'LINKUSDT', 'SOLUSDT', 'XRPUSDT',
+      ]) {
+        expect(identical(scalper.effectiveFor(s), scalper), isFalse,
+            reason: '$s should return a scalper override, not `this`');
+      }
+      // Unknown symbol falls back to `this`.
+      expect(identical(scalper.effectiveFor('UNKNOWNUSDT'), scalper), isTrue);
+    });
+
     test('caller-supplied override beats the built-in default', () {
       const custom = HybridMtfRenkoStrategy(
         smallMult: 99,

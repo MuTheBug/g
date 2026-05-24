@@ -6,6 +6,7 @@ import '../../core/theme.dart';
 import '../../data/models/backtest_result.dart';
 import '../../data/models/timeframe.dart';
 import '../../domain/hybrid_mtf_renko_strategy.dart';
+import '../../domain/pulse_scalper_strategy.dart';
 import '../../domain/strategy.dart';
 import '../../domain/strategy_registry.dart';
 import '../../widgets/common.dart';
@@ -46,16 +47,20 @@ class _BacktestScreenState extends ConsumerState<BacktestScreen> {
   }
 
   /// True when the current strategy + symbol combo has a built-in
-  /// per-symbol override (Renko v2 ships these for the 5 tuned majors,
-  /// and will pick up more as the offline optimizer grows). Drives the
-  /// "tuned for $symbol" badge next to the symbol field.
+  /// per-symbol override. Drives the "tuned per-symbol" badge under
+  /// the symbol field. Renko and Pulse Scalper both ship overrides
+  /// for the 10 tuned majors; other strategies fall through.
   bool get _hasPerSymbolTuning {
-    if (_strategyId != 'renko') return false;
     final symbol = _symbolCtrl.text.trim().toUpperCase();
     if (symbol.isEmpty) return false;
-    final base = StrategyRegistry.fromId('renko');
-    if (base is! HybridMtfRenkoStrategy) return false;
-    return !identical(base.effectiveFor(symbol), base);
+    final base = StrategyRegistry.fromId(_strategyId);
+    if (base is HybridMtfRenkoStrategy) {
+      return !identical(base.effectiveFor(symbol), base);
+    }
+    if (base is PulseScalperStrategy) {
+      return !identical(base.effectiveFor(symbol), base);
+    }
+    return false;
   }
 
   /// Instance of the currently-selected strategy used only to read its
