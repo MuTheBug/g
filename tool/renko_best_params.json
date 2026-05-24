@@ -1,0 +1,180 @@
+{
+  "baseline": {
+    "params": {
+      "small_mult": 0.5,
+      "medium_mult": 1.0,
+      "large_mult": 2.0,
+      "small_fresh_flip_within": 3,
+      "medium_min_run": 3,
+      "large_min_run": 2,
+      "vol_period": 20,
+      "min_volume_surge": 1.2,
+      "min_confidence": 70
+    },
+    "train_median_composite": -Infinity,
+    "test_median_composite": 6.711220101608966,
+    "test_net_pnl_total": -120.6427724610985,
+    "per_symbol_test": {
+      "BNB_USDT": {
+        "trades": 174,
+        "wins": 87,
+        "net_pnl": 31.81659276816572,
+        "win_rate": 0.5,
+        "profit_factor": 1.2145777103554316,
+        "expectancy_r": 0.250000000000005,
+        "max_dd_pct": 0.2020462125370224
+      },
+      "BTC_USDT": {
+        "trades": 167,
+        "wins": 71,
+        "net_pnl": -16.21730840949931,
+        "win_rate": 0.4251497005988024,
+        "profit_factor": 0.8968858773303651,
+        "expectancy_r": 0.06287425149700582,
+        "max_dd_pct": 0.3357780473087531
+      },
+      "ETH_USDT": {
+        "trades": 155,
+        "wins": 58,
+        "net_pnl": -57.919705913556754,
+        "win_rate": 0.3741935483870968,
+        "profit_factor": 0.7563052280101075,
+        "expectancy_r": -0.06451612903225791,
+        "max_dd_pct": 0.7371242764053386
+      },
+      "SOL_USDT": {
+        "trades": 182,
+        "wins": 64,
+        "net_pnl": -78.61922585465618,
+        "win_rate": 0.3516483516483517,
+        "profit_factor": 0.7590379996256271,
+        "expectancy_r": -0.12087912087911863,
+        "max_dd_pct": 1.1904478599478767
+      },
+      "XRP_USDT": {
+        "trades": 158,
+        "wins": 68,
+        "net_pnl": 0.2968749484480213,
+        "win_rate": 0.43037974683544306,
+        "profit_factor": 1.001329458907055,
+        "expectancy_r": 0.07594936708860105,
+        "max_dd_pct": 0.3211138087269205
+      }
+    }
+  },
+  "winner": {
+    "params": {
+      "small_mult": 1.0,
+      "medium_mult": 2.5,
+      "large_mult": 6.0,
+      "small_fresh_flip_within": 2,
+      "medium_min_run": 2,
+      "large_min_run": 2,
+      "vol_period": 20,
+      "min_volume_surge": 1.0,
+      "min_confidence": 70
+    },
+    "train_median_composite": 5.779152045006107,
+    "test_median_composite": 5.512866980162716,
+    "overfit_gap": 0.046076840126311226,
+    "test_trades_total": 375,
+    "test_net_pnl_total": 145.17844000525656,
+    "per_symbol_test": {
+      "BNB_USDT": {
+        "trades": 66,
+        "wins": 28,
+        "net_pnl": 2.3836317674340535,
+        "win_rate": 0.42424242424242425,
+        "profit_factor": 1.02116561599419,
+        "expectancy_r": 0.06060606060606136,
+        "max_dd_pct": 0.2690419201793032
+      },
+      "BTC_USDT": {
+        "trades": 86,
+        "wins": 35,
+        "net_pnl": -19.56315919089684,
+        "win_rate": 0.4069767441860465,
+        "profit_factor": 0.8758615840934524,
+        "expectancy_r": 0.017441860465113437,
+        "max_dd_pct": 0.5345829692352803
+      },
+      "ETH_USDT": {
+        "trades": 70,
+        "wins": 34,
+        "net_pnl": 52.81754026616909,
+        "win_rate": 0.4857142857142857,
+        "profit_factor": 1.3783357930880595,
+        "expectancy_r": 0.21428571428571302,
+        "max_dd_pct": 0.307643917521311
+      },
+      "SOL_USDT": {
+        "trades": 89,
+        "wins": 42,
+        "net_pnl": 54.95467757399638,
+        "win_rate": 0.47191011235955055,
+        "profit_factor": 1.2364844594922324,
+        "expectancy_r": 0.1797752808988764,
+        "max_dd_pct": 0.2753645419792822
+      },
+      "XRP_USDT": {
+        "trades": 64,
+        "wins": 32,
+        "net_pnl": 54.58574958855388,
+        "win_rate": 0.5,
+        "profit_factor": 1.3815908458505741,
+        "expectancy_r": 0.2500000000000026,
+        "max_dd_pct": 0.2693581691890274
+      }
+    },
+    "per_symbol_train": {
+      "BNB_USDT": {
+        "trades": 179,
+        "wins": 70,
+        "net_pnl": -20.267548558224007,
+        "win_rate": 0.39106145251396646,
+        "profit_factor": 0.9443870671743924,
+        "expectancy_r": -0.02234636871508145,
+        "max_dd_pct": 0.7093225361317669
+      },
+      "BTC_USDT": {
+        "trades": 208,
+        "wins": 77,
+        "net_pnl": -72.43746744616146,
+        "win_rate": 0.3701923076923077,
+        "profit_factor": 0.7777616728653303,
+        "expectancy_r": -0.07451923076922852,
+        "max_dd_pct": 0.8816775354371978
+      },
+      "ETH_USDT": {
+        "trades": 162,
+        "wins": 71,
+        "net_pnl": 13.839812101648931,
+        "win_rate": 0.4382716049382716,
+        "profit_factor": 1.0372613495237317,
+        "expectancy_r": 0.09567901234568081,
+        "max_dd_pct": 0.6989279646866284
+      },
+      "SOL_USDT": {
+        "trades": 224,
+        "wins": 87,
+        "net_pnl": -151.5676598381142,
+        "win_rate": 0.38839285714285715,
+        "profit_factor": 0.7745374805382671,
+        "expectancy_r": -0.029017857142861547,
+        "max_dd_pct": 1.8389962916080274
+      },
+      "XRP_USDT": {
+        "trades": 149,
+        "wins": 52,
+        "net_pnl": -54.604280695068155,
+        "win_rate": 0.348993288590604,
+        "profit_factor": 0.848484830583781,
+        "expectancy_r": -0.12751677852349022,
+        "max_dd_pct": 0.7550657106740495
+      }
+    }
+  },
+  "grid_size": 324,
+  "qualifying_count": 42,
+  "atr_brick_sizing_mode": "median_atr_over_slice"
+}

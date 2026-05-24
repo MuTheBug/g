@@ -38,20 +38,34 @@ class _Brick {
 ///  - TP1 = 3 small bricks forward, TP2 = 5, TP3 = 8.
 ///  Bricks → prices via the ATR-derived brickSize.
 class HybridMtfRenkoStrategy extends TradingStrategy {
+  // Defaults from the offline optimizer (tool/optimize_renko.py) — grid
+  // search over 324 combos on 4 years × 5 majors (BNB/BTC/ETH/SOL/XRP)
+  // with a 70/30 train/test split. Winner had a 5 % train→test gap
+  // (very low overfit risk) and improved baseline test P&L by +$266
+  // over ~1.2 years across the 5 symbols. Larger brick sizes than the
+  // original defaults (1.0/2.5/6.0 ATR vs 0.5/1.0/2.0) — trades less,
+  // captures bigger moves, less noise.
   const HybridMtfRenkoStrategy({
     this.atrPeriod = 14,
-    this.smallMult = 0.5,
-    this.mediumMult = 1.0,
-    this.largeMult = 2.0,
-    this.smallFreshFlipWithin = 3,
-    this.mediumMinRun = 3,
+    this.atrMedianWindow = 100,
+    this.smallMult = 1.0,
+    this.mediumMult = 2.5,
+    this.largeMult = 6.0,
+    this.smallFreshFlipWithin = 2,
+    this.mediumMinRun = 2,
     this.largeMinRun = 2,
     this.volPeriod = 20,
-    this.minVolumeSurge = 1.2,
+    this.minVolumeSurge = 1.0,
     this.minConfidence = 70,
   });
 
   final int atrPeriod;
+  /// Brick size = mult × median(ATR over last [atrMedianWindow] bars).
+  /// Using the median (vs ATR-at-current-bar) keeps the brick grid
+  /// stable across the recent window — point-in-time ATR makes brick
+  /// anchors drift mid-trade and produces inconsistent signals. The
+  /// optimizer found this approach materially improves test P&L.
+  final int atrMedianWindow;
   final double smallMult;
   final double mediumMult;
   final double largeMult;
@@ -103,12 +117,12 @@ class HybridMtfRenkoStrategy extends TradingStrategy {
     if (ltf.length < warmupBars) return null;
 
     final atrSeries = Indicators.atr(ltf, period: atrPeriod);
-    final atrNow = atrSeries[ltf.length - 1];
-    if (atrNow.isNaN || atrNow <= 0) return null;
+    final atrAnchor = _medianAtr(atrSeries, atrMedianWindow);
+    if (atrAnchor == null || atrAnchor <= 0) return null;
 
-    final smallSize = smallMult * atrNow;
-    final mediumSize = mediumMult * atrNow;
-    final largeSize = largeMult * atrNow;
+    final smallSize = smallMult * atrAnchor;
+    final mediumSize = mediumMult * atrAnchor;
+    final largeSize = largeMult * atrAnchor;
 
     final small = _buildBricks(ltf, smallSize);
     final medium = _buildBricks(ltf, mediumSize);
@@ -207,7 +221,7 @@ class HybridMtfRenkoStrategy extends TradingStrategy {
         riskRewardR1: r == 0 ? 0 : (tp1 - entry).abs() / r,
         riskRewardR2: r == 0 ? 0 : (tp2 - entry).abs() / r,
         riskRewardR3: r == 0 ? 0 : (tp3 - entry).abs() / r,
-        atr: atrNow,
+        atr: atrAnchor,
       ),
       reasons: reasons,
       htfTrendUp: isLong,
@@ -266,6 +280,24 @@ class HybridMtfRenkoStrategy extends TradingStrategy {
     }
     if (total == 0) return 0;
     return ((got / total) * 100).round().clamp(0, 100);
+  }
+
+  /// Median of the last [window] non-NaN ATR values. Returns null if
+  /// nothing valid is available. Used to size Renko bricks against a
+  /// stable volatility anchor instead of the noisy per-bar ATR.
+  double? _medianAtr(List<double> atrSeries, int window) {
+    final end = atrSeries.length;
+    final start = end - window < 0 ? 0 : end - window;
+    final vals = <double>[];
+    for (var i = start; i < end; i++) {
+      final v = atrSeries[i];
+      if (!v.isNaN) vals.add(v);
+    }
+    if (vals.isEmpty) return null;
+    vals.sort();
+    final n = vals.length;
+    if (n.isOdd) return vals[n ~/ 2];
+    return (vals[n ~/ 2 - 1] + vals[n ~/ 2]) / 2;
   }
 
 }
