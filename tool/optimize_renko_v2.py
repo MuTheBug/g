@@ -38,7 +38,19 @@ import pandas as pd
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 OUT_FILE = Path(__file__).resolve().parent / "renko_params_v2.json"
 
-SYMBOLS = ("BNB_USDT", "BTC_USDT", "ETH_USDT", "SOL_USDT", "XRP_USDT")
+def _discover_symbols(data_dir: Path) -> tuple[str, ...]:
+    """Find every `<SYMBOL>_1h.csv` in data_dir, return symbol names
+    (without the `_1h.csv` suffix). Lets the optimizer pick up newly
+    downloaded pairs without code edits."""
+    if not data_dir.exists():
+        return ()
+    found = sorted(p.stem.replace("_1h", "") for p in data_dir.glob("*_1h.csv"))
+    return tuple(found)
+
+
+SYMBOLS = _discover_symbols(DATA_DIR) or (
+    "BNB_USDT", "BTC_USDT", "ETH_USDT", "SOL_USDT", "XRP_USDT",
+)
 
 WARMUP_BARS = 260
 ATR_PERIOD = 14

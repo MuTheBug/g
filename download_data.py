@@ -63,7 +63,15 @@ def main():
         'enableRateLimit': True,
     })
 
-    symbols = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'XRP/USDT']
+    # Five extra majors added to broaden the optimizer roster — covers
+    # a meme coin (DOGE), an L1 alt (AVAX), a utility token (LINK),
+    # and two established alts (ADA, DOT). Combined with the original
+    # five (BTC/ETH/BNB/SOL/XRP) this gives a 10-symbol universe
+    # spanning multiple market regimes.
+    symbols = [
+        'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'XRP/USDT',
+        'DOGE/USDT', 'AVAX/USDT', 'LINK/USDT', 'ADA/USDT', 'DOT/USDT',
+    ]
     timeframe = '1h'
     
     # 4 years ago

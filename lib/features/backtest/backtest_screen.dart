@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../../core/theme.dart';
 import '../../data/models/backtest_result.dart';
 import '../../data/models/timeframe.dart';
+import '../../domain/hybrid_mtf_renko_strategy.dart';
 import '../../domain/strategy.dart';
 import '../../domain/strategy_registry.dart';
 import '../../widgets/common.dart';
@@ -30,11 +31,31 @@ class _BacktestScreenState extends ConsumerState<BacktestScreen> {
   String _strategyId = 'apex';
 
   @override
+  void initState() {
+    super.initState();
+    // Re-render the symbol-tuned badge as the user types.
+    _symbolCtrl.addListener(() => setState(() {}));
+  }
+
+  @override
   void dispose() {
     _symbolCtrl.dispose();
     _balanceCtrl.dispose();
     _marginCtrl.dispose();
     super.dispose();
+  }
+
+  /// True when the current strategy + symbol combo has a built-in
+  /// per-symbol override (Renko v2 ships these for the 5 tuned majors,
+  /// and will pick up more as the offline optimizer grows). Drives the
+  /// "tuned for $symbol" badge next to the symbol field.
+  bool get _hasPerSymbolTuning {
+    if (_strategyId != 'renko') return false;
+    final symbol = _symbolCtrl.text.trim().toUpperCase();
+    if (symbol.isEmpty) return false;
+    final base = StrategyRegistry.fromId('renko');
+    if (base is! HybridMtfRenkoStrategy) return false;
+    return !identical(base.effectiveFor(symbol), base);
   }
 
   /// Instance of the currently-selected strategy used only to read its
@@ -153,6 +174,32 @@ class _BacktestScreenState extends ConsumerState<BacktestScreen> {
             textCapitalization: TextCapitalization.characters,
             decoration: const InputDecoration(labelText: 'Symbol'),
           ),
+          if (_hasPerSymbolTuning) ...[
+            const SizedBox(height: 4),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: ApexColors.bull.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(
+                    color: ApexColors.bull.withValues(alpha: 0.4), width: 0.5),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.tune, size: 12, color: ApexColors.bull),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Tuned per-symbol overrides active',
+                    style: TextStyle(
+                      color: ApexColors.bull,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 8),
           Row(children: [
             Expanded(
