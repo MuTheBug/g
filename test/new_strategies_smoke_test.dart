@@ -88,4 +88,42 @@ void main() {
       }
     });
   });
+
+  group('HybridMtfRenkoStrategy per-symbol overrides', () {
+    const renko = HybridMtfRenkoStrategy();
+
+    test('built-in defaults exist for the five tuned majors', () {
+      // effectiveFor returns the override (which has a different
+      // smallMult than the global default for at least BTC/SOL).
+      final btc = renko.effectiveFor('BTCUSDT');
+      final sol = renko.effectiveFor('SOLUSDT');
+      expect(btc.smallMult, isNot(equals(renko.smallMult)),
+          reason: 'BTCUSDT override should differ from global default');
+      expect(sol.smallMult, isNot(equals(renko.smallMult)),
+          reason: 'SOLUSDT override should differ from global default');
+      // Sanity: all 5 majors resolve to non-default instances.
+      for (final s in const ['BNBUSDT', 'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT']) {
+        expect(identical(renko.effectiveFor(s), renko), isFalse,
+            reason: '$s should return an override, not `this`');
+      }
+    });
+
+    test('unknown symbol falls back to global params', () {
+      expect(identical(renko.effectiveFor('UNLISTEDUSDT'), renko), isTrue);
+    });
+
+    test('caller-supplied override beats the built-in default', () {
+      const custom = HybridMtfRenkoStrategy(
+        smallMult: 99,
+        mediumMult: 100,
+        largeMult: 101,
+        perSymbolOverrides: {},
+      );
+      final wrapper = HybridMtfRenkoStrategy(
+        perSymbolOverrides: const {'BTCUSDT': custom},
+      );
+      final effective = wrapper.effectiveFor('BTCUSDT');
+      expect(effective.smallMult, equals(99));
+    });
+  });
 }

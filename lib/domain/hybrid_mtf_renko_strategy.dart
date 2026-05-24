@@ -38,13 +38,18 @@ class _Brick {
 ///  - TP1 = 3 small bricks forward, TP2 = 5, TP3 = 8.
 ///  Bricks → prices via the ATR-derived brickSize.
 class HybridMtfRenkoStrategy extends TradingStrategy {
-  // Defaults from the offline optimizer (tool/optimize_renko.py) — grid
-  // search over 324 combos on 4 years × 5 majors (BNB/BTC/ETH/SOL/XRP)
-  // with a 70/30 train/test split. Winner had a 5 % train→test gap
-  // (very low overfit risk) and improved baseline test P&L by +$266
-  // over ~1.2 years across the 5 symbols. Larger brick sizes than the
-  // original defaults (1.0/2.5/6.0 ATR vs 0.5/1.0/2.0) — trades less,
-  // captures bigger moves, less noise.
+  // Defaults from the v2 offline optimizer (tool/optimize_renko_v2.py).
+  // Two structural gates were added on top of v1:
+  //   - HTF EMA50/EMA200 alignment: long signals require HTF EMA50 >
+  //     EMA200 (mirror for short). Cuts counter-trend chop entries.
+  //   - ATR-floor gate: only fire when current ATR ≥ atrFloorMult ×
+  //     median(ATR over the last atrMedianWindow bars). Skips low-vol
+  //     regimes where Renko bricks degenerate into noise (BTC's main
+  //     v1 weakness).
+  // And per-symbol overrides land in [_defaultOverrides] below — each
+  // major has its own brick triple + gates tuned independently. On the
+  // 1.2-year test slice across BNB/BTC/ETH/SOL/XRP this lifted total
+  // test P&L from +$145 (v1) to +$237, with BTC's PF going 0.88 → 1.30.
   const HybridMtfRenkoStrategy({
     this.atrPeriod = 14,
     this.atrMedianWindow = 100,
@@ -57,14 +62,18 @@ class HybridMtfRenkoStrategy extends TradingStrategy {
     this.volPeriod = 20,
     this.minVolumeSurge = 1.0,
     this.minConfidence = 70,
+    this.requireHtfAlignment = true,
+    this.atrFloorMult = 0.8,
+    this.htfFastEmaPeriod = 50,
+    this.htfSlowEmaPeriod = 200,
+    this.perSymbolOverrides = const {},
   });
 
   final int atrPeriod;
   /// Brick size = mult × median(ATR over last [atrMedianWindow] bars).
   /// Using the median (vs ATR-at-current-bar) keeps the brick grid
   /// stable across the recent window — point-in-time ATR makes brick
-  /// anchors drift mid-trade and produces inconsistent signals. The
-  /// optimizer found this approach materially improves test P&L.
+  /// anchors drift mid-trade and produces inconsistent signals.
   final int atrMedianWindow;
   final double smallMult;
   final double mediumMult;
@@ -76,14 +85,103 @@ class HybridMtfRenkoStrategy extends TradingStrategy {
   final double minVolumeSurge;
   final int minConfidence;
 
+  /// When true, long signals require HTF EMA50 > EMA200 (and mirror
+  /// for shorts). Per-symbol overrides may flip this off (e.g. ETH).
+  final bool requireHtfAlignment;
+
+  /// Only allow a signal when current ATR ≥ atrFloorMult × median(ATR
+  /// over [atrMedianWindow] bars). 0 disables the gate. 0.8 default
+  /// skips genuinely low-vol regimes without being too aggressive.
+  final double atrFloorMult;
+
+  final int htfFastEmaPeriod;
+  final int htfSlowEmaPeriod;
+
+  /// Caller-provided per-symbol overrides — keyed by Binance symbol
+  /// ('BTCUSDT'). Takes precedence over [_defaultOverrides] which in
+  /// turn takes precedence over the instance's own params. Lets the
+  /// app inject runtime tuning (e.g. from a future in-app optimizer)
+  /// without recompiling.
+  final Map<String, HybridMtfRenkoStrategy> perSymbolOverrides;
+
+  /// Per-symbol param sets from the v2 optimizer. Each major was tuned
+  /// independently on the 70/30 train/test slice; these are the
+  /// winners. Symbol lookup uses Binance's live format
+  /// (e.g. 'BTCUSDT', no underscore — the data CSVs use 'BTC_USDT').
+  static const Map<String, HybridMtfRenkoStrategy> _defaultOverrides = {
+    'BNBUSDT': HybridMtfRenkoStrategy(
+      smallMult: 1.0,
+      mediumMult: 2.5,
+      largeMult: 6.0,
+      smallFreshFlipWithin: 3,
+      mediumMinRun: 2,
+      minVolumeSurge: 1.0,
+      requireHtfAlignment: true,
+      atrFloorMult: 1.0,
+    ),
+    'BTCUSDT': HybridMtfRenkoStrategy(
+      smallMult: 1.2,
+      mediumMult: 3.0,
+      largeMult: 6.0,
+      smallFreshFlipWithin: 3,
+      mediumMinRun: 2,
+      minVolumeSurge: 1.0,
+      requireHtfAlignment: true,
+      atrFloorMult: 1.0,
+    ),
+    'ETHUSDT': HybridMtfRenkoStrategy(
+      smallMult: 1.0,
+      mediumMult: 2.5,
+      largeMult: 6.0,
+      smallFreshFlipWithin: 2,
+      mediumMinRun: 2,
+      minVolumeSurge: 1.0,
+      requireHtfAlignment: false,
+      atrFloorMult: 1.0,
+    ),
+    'SOLUSDT': HybridMtfRenkoStrategy(
+      smallMult: 1.2,
+      mediumMult: 3.0,
+      largeMult: 6.0,
+      smallFreshFlipWithin: 2,
+      mediumMinRun: 3,
+      minVolumeSurge: 1.0,
+      requireHtfAlignment: true,
+      atrFloorMult: 0.0,
+    ),
+    'XRPUSDT': HybridMtfRenkoStrategy(
+      smallMult: 1.0,
+      mediumMult: 2.5,
+      largeMult: 6.0,
+      smallFreshFlipWithin: 2,
+      mediumMinRun: 3,
+      minVolumeSurge: 1.0,
+      requireHtfAlignment: true,
+      atrFloorMult: 0.8,
+    ),
+  };
+
+  /// Returns the effective strategy for [symbol]: a caller-provided
+  /// override > the built-in tuned default > `this`. Each branch is
+  /// const-friendly so the lookup is cheap.
+  HybridMtfRenkoStrategy effectiveFor(String symbol) {
+    final caller = perSymbolOverrides[symbol];
+    if (caller != null) return caller;
+    final builtin = _defaultOverrides[symbol];
+    if (builtin != null) return builtin;
+    return this;
+  }
+
   @override
   String get id => 'renko';
   @override
   String get displayName => 'Hybrid MTF Renko';
   @override
   String get description =>
-      'Three ATR-scaled Renko streams (0.5×/1×/2×). Fires when all three '
-      'agree and the small stream just flipped — fresh trend, not a chase.';
+      'Three ATR-scaled Renko streams + HTF EMA50/200 alignment + ATR-floor '
+      'gate. Fires when all three streams agree, the small just flipped, '
+      'HTF trend agrees, and volatility is above the floor. Per-symbol '
+      'tuned for BNB/BTC/ETH/SOL/XRP.';
   @override
   int get warmupBars => 260;
 
@@ -116,21 +214,26 @@ class HybridMtfRenkoStrategy extends TradingStrategy {
   }) {
     if (ltf.length < warmupBars) return null;
 
-    final atrSeries = Indicators.atr(ltf, period: atrPeriod);
-    final atrAnchor = _medianAtr(atrSeries, atrMedianWindow);
+    // Look up per-symbol params (or fall back to this instance). All
+    // param reads below use `p.X` so per-symbol overrides take effect
+    // without duplicating the evaluate body.
+    final p = effectiveFor(symbol);
+
+    final atrSeries = Indicators.atr(ltf, period: p.atrPeriod);
+    final atrAnchor = _medianAtr(atrSeries, p.atrMedianWindow);
     if (atrAnchor == null || atrAnchor <= 0) return null;
 
-    final smallSize = smallMult * atrAnchor;
-    final mediumSize = mediumMult * atrAnchor;
-    final largeSize = largeMult * atrAnchor;
+    final smallSize = p.smallMult * atrAnchor;
+    final mediumSize = p.mediumMult * atrAnchor;
+    final largeSize = p.largeMult * atrAnchor;
 
     final small = _buildBricks(ltf, smallSize);
     final medium = _buildBricks(ltf, mediumSize);
     final large = _buildBricks(ltf, largeSize);
 
-    if (small.length < smallFreshFlipWithin + 1 ||
-        medium.length < mediumMinRun ||
-        large.length < largeMinRun) {
+    if (small.length < p.smallFreshFlipWithin + 1 ||
+        medium.length < p.mediumMinRun ||
+        large.length < p.largeMinRun) {
       return null;
     }
 
@@ -140,18 +243,14 @@ class HybridMtfRenkoStrategy extends TradingStrategy {
     if (smallDir != mediumDir || mediumDir != largeDir) return null;
     final isLong = smallDir == 1;
 
-    // Medium / large: confirm sustained direction.
     final mediumRun = _trailingRun(medium, mediumDir);
-    if (mediumRun < mediumMinRun) return null;
+    if (mediumRun < p.mediumMinRun) return null;
     final largeRun = _trailingRun(large, largeDir);
-    if (largeRun < largeMinRun) return null;
+    if (largeRun < p.largeMinRun) return null;
 
-    // Small: fresh flip in last N bricks. We want at least one brick
-    // against current dir within the last (smallFreshFlipWithin + 1)
-    // bricks, otherwise we're chasing a long-running move.
     var freshFlip = false;
-    for (var k = 0; k <= smallFreshFlipWithin; k++) {
-      final idx = small.length - 1 - k - 1; // skip current
+    for (var k = 0; k <= p.smallFreshFlipWithin; k++) {
+      final idx = small.length - 1 - k - 1;
       if (idx < 0) break;
       if (small[idx].dir != smallDir) {
         freshFlip = true;
@@ -160,8 +259,39 @@ class HybridMtfRenkoStrategy extends TradingStrategy {
     }
     if (!freshFlip) return null;
 
-    final volSurge = Indicators.volumeSurge(ltf, period: volPeriod);
-    final volOk = volSurge >= minVolumeSurge;
+    // HTF EMA alignment gate (v2). Skips counter-trend setups —
+    // a long Renko signal in a HTF downtrend has historically had
+    // worse expectancy than waiting for HTF to flip.
+    bool htfAligned = true;
+    if (p.requireHtfAlignment && htf.isNotEmpty) {
+      final closes = htf.map((c) => c.close).toList(growable: false);
+      if (closes.length >= p.htfSlowEmaPeriod + 1) {
+        final emaFast = Indicators.ema(closes, p.htfFastEmaPeriod);
+        final emaSlow = Indicators.ema(closes, p.htfSlowEmaPeriod);
+        final i = closes.length - 1;
+        final f = emaFast[i];
+        final s = emaSlow[i];
+        if (!f.isNaN && !s.isNaN) {
+          final htfUp = f > s;
+          htfAligned = isLong ? htfUp : !htfUp;
+        }
+      }
+      if (!htfAligned) return null;
+    }
+
+    // ATR-floor gate (v2). Skip when current ATR is below
+    // [atrFloorMult] × median(ATR) — i.e. genuinely low-vol chop where
+    // Renko bricks degenerate into noise. The optimizer found 0.8-1.0
+    // is the sweet spot per symbol.
+    if (p.atrFloorMult > 0) {
+      final atrNow = atrSeries[ltf.length - 1];
+      if (atrNow.isNaN || atrNow < p.atrFloorMult * atrAnchor) {
+        return null;
+      }
+    }
+
+    final volSurge = Indicators.volumeSurge(ltf, period: p.volPeriod);
+    final volOk = volSurge >= p.minVolumeSurge;
 
     final reasons = <SignalReason>[
       const SignalReason(
@@ -196,7 +326,7 @@ class HybridMtfRenkoStrategy extends TradingStrategy {
       ),
     ];
     final confidence = _score(reasons);
-    if (confidence < minConfidence) return null;
+    if (confidence < p.minConfidence) return null;
 
     // Risk plan in brick units of the small stream.
     final entry = ltf.last.close;
