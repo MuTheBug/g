@@ -1,6 +1,7 @@
 import 'coiled_spring_strategy.dart';
 import 'hybrid_mtf_renko_strategy.dart';
 import 'orb_strategy.dart';
+import 'pulse_scalper_strategy.dart';
 import 'strategy.dart';
 import 'trend_pullback_strategy.dart';
 import 'volume_surge_reversal_strategy.dart';
@@ -50,6 +51,11 @@ class StrategyRegistry {
       id: 'renko',
       displayName: 'Hybrid MTF Renko',
       create: () => const HybridMtfRenkoStrategy(),
+    ),
+    StrategyDescriptor(
+      id: 'scalper',
+      displayName: 'Pulse Scalper',
+      create: () => const PulseScalperStrategy(),
     ),
     StrategyDescriptor(
       id: 'pullback',

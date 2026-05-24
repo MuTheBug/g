@@ -2,6 +2,7 @@ import 'package:apex_trader/data/models/candle.dart';
 import 'package:apex_trader/data/models/timeframe.dart';
 import 'package:apex_trader/domain/coiled_spring_strategy.dart';
 import 'package:apex_trader/domain/hybrid_mtf_renko_strategy.dart';
+import 'package:apex_trader/domain/pulse_scalper_strategy.dart';
 import 'package:apex_trader/domain/strategy.dart';
 import 'package:apex_trader/domain/strategy_registry.dart';
 import 'package:apex_trader/domain/volume_surge_reversal_strategy.dart';
@@ -71,6 +72,7 @@ void main() {
         const VolumeSurgeReversalStrategy(),
         const HybridMtfRenkoStrategy(),
         const CoiledSpringStrategy(),
+        const PulseScalperStrategy(),
       ];
       for (final s in strategies) {
         expect(s.evaluate(symbol: 'X', htf: flat, mtf: flat, ltf: flat),
@@ -81,7 +83,7 @@ void main() {
 
     test('warmup short-circuit', () {
       final tiny = _flat(30);
-      for (final id in const ['vsr', 'renko', 'spring']) {
+      for (final id in const ['vsr', 'renko', 'spring', 'scalper']) {
         final s = StrategyRegistry.fromId(id);
         expect(s.evaluate(symbol: 'X', htf: tiny, mtf: tiny, ltf: tiny),
             isNull);
