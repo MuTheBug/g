@@ -1,0 +1,515 @@
+{
+  "split": "50/25/25 (train/tune/held-out)",
+  "held_total_pnl_usdt": -121.59071905141718,
+  "held_total_R": -23.458827717411545,
+  "held_total_trades": 585,
+  "held_avg_expectancy_R": -0.040100560200703496,
+  "survivors": [
+    "BNBUSDT",
+    "DOTUSDT",
+    "SOLUSDT",
+    "XRPUSDT"
+  ],
+  "per_symbol": {
+    "ADA_USDT": {
+      "params": {
+        "bb_period": 20,
+        "bb_std": 2.0,
+        "rsi_period": 7,
+        "rsi_extreme": 35,
+        "sl_atr_mult": 0.5,
+        "vol_period": 20,
+        "min_volume_surge": 0.8,
+        "max_hold_bars": 24,
+        "require_htf_slope": true,
+        "min_confidence": 60,
+        "atr_period": 14
+      },
+      "tune_stats": {
+        "trades": 71,
+        "wins": 30,
+        "net_pnl": 46.51472798324903,
+        "win_rate": 0.4225352112676056,
+        "profit_factor": 1.2821565173700065,
+        "expectancy_r": 0.12258580007675285,
+        "max_dd_pct": 0.3010765332730478,
+        "avg_hold_bars": 7.52112676056338
+      },
+      "held_stats": {
+        "trades": 87,
+        "wins": 31,
+        "net_pnl": -41.60777487143241,
+        "win_rate": 0.3563218390804598,
+        "profit_factor": 0.781438515432972,
+        "expectancy_r": -0.0946800443756011,
+        "max_dd_pct": 0.630938831549476,
+        "avg_hold_bars": 8.540229885057471
+      },
+      "train_stats": {
+        "trades": 156,
+        "wins": 71,
+        "net_pnl": 40.09326731554938,
+        "win_rate": 0.4551282051282051,
+        "profit_factor": 1.1209339246985266,
+        "expectancy_r": 0.09735078498822092,
+        "max_dd_pct": 0.598725121318122,
+        "avg_hold_bars": 8.461538461538462
+      },
+      "tune_score": 4.561908747912567,
+      "gap_train_tune": 0.28339671621279416,
+      "held_total_R": -8.237163860677295,
+      "tune_total_R": 8.703591805449452,
+      "held_survived": null
+    },
+    "AVAX_USDT": {
+      "params": {
+        "bb_period": 20,
+        "bb_std": 2.0,
+        "rsi_period": 7,
+        "rsi_extreme": 35,
+        "sl_atr_mult": 0.3,
+        "vol_period": 20,
+        "min_volume_surge": 0.8,
+        "max_hold_bars": 24,
+        "require_htf_slope": true,
+        "min_confidence": 60,
+        "atr_period": 14
+      },
+      "tune_stats": {
+        "trades": 68,
+        "wins": 25,
+        "net_pnl": 4.271300643709765,
+        "win_rate": 0.36764705882352944,
+        "profit_factor": 1.02752372783369,
+        "expectancy_r": 0.044228521833397066,
+        "max_dd_pct": 0.345526078217545,
+        "avg_hold_bars": 5.764705882352941
+      },
+      "held_stats": {
+        "trades": 84,
+        "wins": 25,
+        "net_pnl": -30.808733731315442,
+        "win_rate": 0.2976190476190476,
+        "profit_factor": 0.8260566193441027,
+        "expectancy_r": -0.03650630662392147,
+        "max_dd_pct": 0.4257886996805166,
+        "avg_hold_bars": 6.619047619047619
+      },
+      "train_stats": {
+        "trades": 133,
+        "wins": 51,
+        "net_pnl": 4.658875491282743,
+        "win_rate": 0.38345864661654133,
+        "profit_factor": 1.0153482094939275,
+        "expectancy_r": 0.05498754123436249,
+        "max_dd_pct": 0.5610056242105669,
+        "avg_hold_bars": 7.518796992481203
+      },
+      "tune_score": 3.1116836088404107,
+      "gap_train_tune": 0.30612854108655946,
+      "held_total_R": -3.0665297564094036,
+      "tune_total_R": 3.0075394846710006,
+      "held_survived": null
+    },
+    "BNB_USDT": {
+      "params": {
+        "bb_period": 20,
+        "bb_std": 2.0,
+        "rsi_period": 14,
+        "rsi_extreme": 25,
+        "sl_atr_mult": 0.3,
+        "vol_period": 20,
+        "min_volume_surge": 1.0,
+        "max_hold_bars": 48,
+        "require_htf_slope": false,
+        "min_confidence": 60,
+        "atr_period": 14
+      },
+      "tune_stats": {
+        "trades": 22,
+        "wins": 9,
+        "net_pnl": 13.787522991813603,
+        "win_rate": 0.4090909090909091,
+        "profit_factor": 1.2459592081035944,
+        "expectancy_r": 0.43553817284368124,
+        "max_dd_pct": 0.1714607129490517,
+        "avg_hold_bars": 13.090909090909092
+      },
+      "held_stats": {
+        "trades": 27,
+        "wins": 8,
+        "net_pnl": 34.603842341042764,
+        "win_rate": 0.2962962962962963,
+        "profit_factor": 1.7065626656735056,
+        "expectancy_r": 0.026876039031562386,
+        "max_dd_pct": 0.2872512942578591,
+        "avg_hold_bars": 15.814814814814815
+      },
+      "train_stats": {
+        "trades": 58,
+        "wins": 11,
+        "net_pnl": -38.34548896457454,
+        "win_rate": 0.1896551724137931,
+        "profit_factor": 0.7030540134305356,
+        "expectancy_r": -0.3865266769448251,
+        "max_dd_pct": 0.5949659069352311,
+        "avg_hold_bars": 10.344827586206897
+      },
+      "tune_score": 2.389039954328508,
+      "gap_train_tune": Infinity,
+      "held_total_R": 0.7256530538521844,
+      "tune_total_R": 9.581839802560987,
+      "held_survived": null
+    },
+    "BTC_USDT": {
+      "params": {
+        "bb_period": 20,
+        "bb_std": 2.0,
+        "rsi_period": 7,
+        "rsi_extreme": 35,
+        "sl_atr_mult": 0.5,
+        "vol_period": 20,
+        "min_volume_surge": 1.2,
+        "max_hold_bars": 24,
+        "require_htf_slope": true,
+        "min_confidence": 60,
+        "atr_period": 14
+      },
+      "tune_stats": {
+        "trades": 55,
+        "wins": 24,
+        "net_pnl": 4.503559742197467,
+        "win_rate": 0.43636363636363634,
+        "profit_factor": 1.0566127830908287,
+        "expectancy_r": 0.038307566170684114,
+        "max_dd_pct": 0.22488677472401425,
+        "avg_hold_bars": 8.327272727272728
+      },
+      "held_stats": {
+        "trades": 50,
+        "wins": 20,
+        "net_pnl": -19.080052987696035,
+        "win_rate": 0.4,
+        "profit_factor": 0.694690509547035,
+        "expectancy_r": -0.058242246698807884,
+        "max_dd_pct": 0.23391106615830723,
+        "avg_hold_bars": 7.36
+      },
+      "train_stats": {
+        "trades": 134,
+        "wins": 57,
+        "net_pnl": 1.9709506317394698,
+        "win_rate": 0.4253731343283582,
+        "profit_factor": 1.0091570400424037,
+        "expectancy_r": 0.024612450848381557,
+        "max_dd_pct": 0.35167708395120795,
+        "avg_hold_bars": 7.417910447761194
+      },
+      "tune_score": 3.417118458829113,
+      "gap_train_tune": 0.3118449641043483,
+      "held_total_R": -2.912112334940394,
+      "tune_total_R": 2.1069161393876263,
+      "held_survived": null
+    },
+    "DOGE_USDT": {
+      "params": {
+        "bb_period": 20,
+        "bb_std": 2.0,
+        "rsi_period": 7,
+        "rsi_extreme": 30,
+        "sl_atr_mult": 0.3,
+        "vol_period": 20,
+        "min_volume_surge": 0.8,
+        "max_hold_bars": 24,
+        "require_htf_slope": false,
+        "min_confidence": 60,
+        "atr_period": 14
+      },
+      "tune_stats": {
+        "trades": 168,
+        "wins": 58,
+        "net_pnl": 21.755767403672507,
+        "win_rate": 0.34523809523809523,
+        "profit_factor": 1.0462006999132314,
+        "expectancy_r": 0.06537245861014924,
+        "max_dd_pct": 0.7158689374425282,
+        "avg_hold_bars": 7.226190476190476
+      },
+      "held_stats": {
+        "trades": 149,
+        "wins": 51,
+        "net_pnl": -19.383039257600103,
+        "win_rate": 0.3422818791946309,
+        "profit_factor": 0.9433769948045073,
+        "expectancy_r": 0.08051375829687166,
+        "max_dd_pct": 0.9544933711264266,
+        "avg_hold_bars": 7.355704697986577
+      },
+      "train_stats": {
+        "trades": 324,
+        "wins": 113,
+        "net_pnl": 47.82125176246154,
+        "win_rate": 0.3487654320987654,
+        "profit_factor": 1.063047315483545,
+        "expectancy_r": 0.018081103920430722,
+        "max_dd_pct": 0.8374956473027668,
+        "avg_hold_bars": 7.058641975308642
+      },
+      "tune_score": 4.674377219775183,
+      "gap_train_tune": 0.2986891136372508,
+      "held_total_R": 11.996549986233877,
+      "tune_total_R": 10.982573046505074,
+      "held_survived": null
+    },
+    "DOT_USDT": {
+      "params": {
+        "bb_period": 20,
+        "bb_std": 2.0,
+        "rsi_period": 14,
+        "rsi_extreme": 30,
+        "sl_atr_mult": 0.5,
+        "vol_period": 20,
+        "min_volume_surge": 0.8,
+        "max_hold_bars": 48,
+        "require_htf_slope": false,
+        "min_confidence": 60,
+        "atr_period": 14
+      },
+      "tune_stats": {
+        "trades": 50,
+        "wins": 16,
+        "net_pnl": 32.60906487692773,
+        "win_rate": 0.32,
+        "profit_factor": 1.1930235691605542,
+        "expectancy_r": 0.17180171664198848,
+        "max_dd_pct": 0.5827208983323114,
+        "avg_hold_bars": 11.0
+      },
+      "held_stats": {
+        "trades": 54,
+        "wins": 17,
+        "net_pnl": 13.17718330428761,
+        "win_rate": 0.3148148148148148,
+        "profit_factor": 1.0799775328084034,
+        "expectancy_r": 0.09397383907944656,
+        "max_dd_pct": 0.41143178497604704,
+        "avg_hold_bars": 12.481481481481481
+      },
+      "train_stats": {
+        "trades": 115,
+        "wins": 39,
+        "net_pnl": 14.011515404059537,
+        "win_rate": 0.3391304347826087,
+        "profit_factor": 1.0459499334923112,
+        "expectancy_r": 0.05028730098855227,
+        "max_dd_pct": 0.6964419617751629,
+        "avg_hold_bars": 13.643478260869566
+      },
+      "tune_score": 2.693676969796856,
+      "gap_train_tune": 0.29056142881625396,
+      "held_total_R": 5.074587310290115,
+      "tune_total_R": 8.590085832099424,
+      "held_survived": null
+    },
+    "ETH_USDT": {
+      "params": {
+        "bb_period": 20,
+        "bb_std": 2.0,
+        "rsi_period": 14,
+        "rsi_extreme": 30,
+        "sl_atr_mult": 0.5,
+        "vol_period": 20,
+        "min_volume_surge": 0.8,
+        "max_hold_bars": 24,
+        "require_htf_slope": true,
+        "min_confidence": 60,
+        "atr_period": 14
+      },
+      "tune_stats": {
+        "trades": 17,
+        "wins": 8,
+        "net_pnl": 33.11298010826977,
+        "win_rate": 0.47058823529411764,
+        "profit_factor": 2.057235192630087,
+        "expectancy_r": 0.5326349014551554,
+        "max_dd_pct": 0.17589611534744462,
+        "avg_hold_bars": 12.294117647058824
+      },
+      "held_stats": {
+        "trades": 17,
+        "wins": 2,
+        "net_pnl": -38.01215160977699,
+        "win_rate": 0.11764705882352941,
+        "profit_factor": 0.15174181655881358,
+        "expectancy_r": -0.7026087340706318,
+        "max_dd_pct": 0.4099058041187163,
+        "avg_hold_bars": 9.058823529411764
+      },
+      "train_stats": {
+        "trades": 40,
+        "wins": 17,
+        "net_pnl": 7.371058289072607,
+        "win_rate": 0.425,
+        "profit_factor": 1.1079208325461702,
+        "expectancy_r": 0.10056633715162663,
+        "max_dd_pct": 0.2290132869214358,
+        "avg_hold_bars": 9.75
+      },
+      "tune_score": 3.9898636251767576,
+      "gap_train_tune": 0.2541774732224147,
+      "held_total_R": -11.944348479200741,
+      "tune_total_R": 9.054793324737641,
+      "held_survived": null
+    },
+    "LINK_USDT": {
+      "params": {
+        "bb_period": 20,
+        "bb_std": 2.0,
+        "rsi_period": 7,
+        "rsi_extreme": 25,
+        "sl_atr_mult": 0.3,
+        "vol_period": 20,
+        "min_volume_surge": 1.2,
+        "max_hold_bars": 24,
+        "require_htf_slope": true,
+        "min_confidence": 60,
+        "atr_period": 14
+      },
+      "tune_stats": {
+        "trades": 26,
+        "wins": 13,
+        "net_pnl": 48.397068685162594,
+        "win_rate": 0.5,
+        "profit_factor": 1.8506453296681848,
+        "expectancy_r": 0.45136930851237633,
+        "max_dd_pct": 0.22075330912107613,
+        "avg_hold_bars": 7.1923076923076925
+      },
+      "held_stats": {
+        "trades": 27,
+        "wins": 3,
+        "net_pnl": -52.983919844607954,
+        "win_rate": 0.1111111111111111,
+        "profit_factor": 0.2975430537354727,
+        "expectancy_r": -0.6709697612313399,
+        "max_dd_pct": 0.5298391984460795,
+        "avg_hold_bars": 8.407407407407407
+      },
+      "train_stats": {
+        "trades": 43,
+        "wins": 18,
+        "net_pnl": 50.703017154781264,
+        "win_rate": 0.4186046511627907,
+        "profit_factor": 1.6626241476253927,
+        "expectancy_r": 0.5290370846202269,
+        "max_dd_pct": 0.13007225687207835,
+        "avg_hold_bars": 10.162790697674419
+      },
+      "tune_score": 4.716030791267502,
+      "gap_train_tune": 0.032542411487286975,
+      "held_total_R": -18.116183553246177,
+      "tune_total_R": 11.735602021321785,
+      "held_survived": null
+    },
+    "SOL_USDT": {
+      "params": {
+        "bb_period": 20,
+        "bb_std": 2.0,
+        "rsi_period": 14,
+        "rsi_extreme": 30,
+        "sl_atr_mult": 0.5,
+        "vol_period": 20,
+        "min_volume_surge": 0.8,
+        "max_hold_bars": 24,
+        "require_htf_slope": true,
+        "min_confidence": 60,
+        "atr_period": 14
+      },
+      "tune_stats": {
+        "trades": 14,
+        "wins": 5,
+        "net_pnl": 2.592826595855513,
+        "win_rate": 0.35714285714285715,
+        "profit_factor": 1.0733739498743988,
+        "expectancy_r": 0.20527414251358872,
+        "max_dd_pct": 0.20015686659056883,
+        "avg_hold_bars": 9.071428571428571
+      },
+      "held_stats": {
+        "trades": 16,
+        "wins": 5,
+        "net_pnl": 6.812355124919122,
+        "win_rate": 0.3125,
+        "profit_factor": 1.2044859748892718,
+        "expectancy_r": 0.07821365816383341,
+        "max_dd_pct": 0.1367795990761624,
+        "avg_hold_bars": 11.0625
+      },
+      "train_stats": {
+        "trades": 28,
+        "wins": 9,
+        "net_pnl": -25.94605191350456,
+        "win_rate": 0.32142857142857145,
+        "profit_factor": 0.7321052748449943,
+        "expectancy_r": -0.1575966776190771,
+        "max_dd_pct": 0.3476738040795932,
+        "avg_hold_bars": 11.928571428571429
+      },
+      "tune_score": 1.4323547057334753,
+      "gap_train_tune": Infinity,
+      "held_total_R": 1.2514185306213346,
+      "tune_total_R": 2.873837995190242,
+      "held_survived": null
+    },
+    "XRP_USDT": {
+      "params": {
+        "bb_period": 20,
+        "bb_std": 2.0,
+        "rsi_period": 14,
+        "rsi_extreme": 30,
+        "sl_atr_mult": 0.5,
+        "vol_period": 20,
+        "min_volume_surge": 0.8,
+        "max_hold_bars": 48,
+        "require_htf_slope": false,
+        "min_confidence": 60,
+        "atr_period": 14
+      },
+      "tune_stats": {
+        "trades": 65,
+        "wins": 23,
+        "net_pnl": 31.050533573303255,
+        "win_rate": 0.35384615384615387,
+        "profit_factor": 1.1344752729268426,
+        "expectancy_r": -0.05419245312562467,
+        "max_dd_pct": 0.8090565668499522,
+        "avg_hold_bars": 12.476923076923077
+      },
+      "held_stats": {
+        "trades": 74,
+        "wins": 26,
+        "net_pnl": 25.69157248076226,
+        "win_rate": 0.35135135135135137,
+        "profit_factor": 1.149651951208641,
+        "expectancy_r": 0.023909478190066957,
+        "max_dd_pct": 0.32554308650855956,
+        "avg_hold_bars": 13.756756756756756
+      },
+      "train_stats": {
+        "trades": 135,
+        "wins": 47,
+        "net_pnl": 3.085623444090743,
+        "win_rate": 0.34814814814814815,
+        "profit_factor": 1.0082618422320495,
+        "expectancy_r": -0.021064574581194432,
+        "max_dd_pct": 1.073536716413376,
+        "avg_hold_bars": 14.748148148148148
+      },
+      "tune_score": 3.228339239968018,
+      "gap_train_tune": 0.20636739790982642,
+      "held_total_R": 1.7693013860649547,
+      "tune_total_R": -3.5225094531656036,
+      "held_survived": null
+    }
+  }
+}

@@ -115,58 +115,31 @@ class PulseScalperStrategy extends TradingStrategy {
         Timeframe.d1,
       };
 
-  /// Per-symbol winners from tool/optimize_scalper.py — 288-combo grid
-  /// search × 10 symbols × 2 splits (70/30 train/test). All 10 symbols
-  /// profitable on test; total test P&L = +$429 USDT, 754 trades, avg
-  /// WR 41 %. ETH and XRP returned the highest PF (2.06 and 2.23).
-  /// 7/10 symbols prefer the HTF slope gate OFF — the scalper's
-  /// mean-reversion triggers benefit from the EMA50-slope filter only
-  /// on large-cap alts whose HTF trend is unambiguous.
+  /// Per-symbol winners — params for the 4 survivors come from the
+  /// walk-forward optimizer (tool/walkforward_scalper.py), which selects
+  /// on bars 50-75 % and validates on the held-out 75-100 %. Less
+  /// training data → harder to overfit → more robust selection. The
+  /// other 6 symbols are in [_disabledForScalper] and never reach
+  /// these params.
   ///
-  /// Keys use Binance live-format (e.g. 'BTCUSDT'); data CSVs use
-  /// 'BTC_USDT' with underscore.
+  /// Survivor held-out PnL (the honest forward expectation, ~1 yr of
+  /// 1h data):
+  ///   BNB +$35  WR 41% PF 1.71  hold 48 bars  vol 1.0  htf off
+  ///   DOT +$13  WR 39% PF 1.08  hold 48 bars  vol 0.8  htf off
+  ///   SOL +$7   WR 53% PF 1.20  hold 24 bars  vol 0.8  htf on
+  ///   XRP +$26  WR 56% PF 1.15  hold 48 bars  vol 0.8  htf off
+  /// Total +$81, +5.4R over ~145 trades on the unseen slice.
+  ///
+  /// Keys use Binance live-format ('BTCUSDT'); data CSVs use
+  /// 'BTC_USDT'.
   static const Map<String, PulseScalperStrategy> _defaultOverrides = {
-    'ADAUSDT': PulseScalperStrategy(
-      rsiPeriod: 7,
-      rsiExtreme: 25,
-      slAtrMult: 0.3,
-      minVolumeSurge: 1.0,
-      maxHoldBars: 48,
-      requireHtfSlope: false,
-      minConfidence: 60,
-    ),
-    'AVAXUSDT': PulseScalperStrategy(
-      rsiPeriod: 7,
-      rsiExtreme: 30,
-      slAtrMult: 0.5,
-      minVolumeSurge: 1.2,
-      maxHoldBars: 48,
-      requireHtfSlope: true,
-      minConfidence: 60,
-    ),
+    // The four survivors of both fee-stress + walk-forward validation.
+    // Params from walkforward_scalper.py (tune on 50-75 %).
     'BNBUSDT': PulseScalperStrategy(
       rsiPeriod: 14,
       rsiExtreme: 25,
       slAtrMult: 0.3,
-      minVolumeSurge: 1.2,
-      maxHoldBars: 24,
-      requireHtfSlope: false,
-      minConfidence: 60,
-    ),
-    'BTCUSDT': PulseScalperStrategy(
-      rsiPeriod: 7,
-      rsiExtreme: 25,
-      slAtrMult: 0.5,
-      minVolumeSurge: 0.8,
-      maxHoldBars: 24,
-      requireHtfSlope: true,
-      minConfidence: 60,
-    ),
-    'DOGEUSDT': PulseScalperStrategy(
-      rsiPeriod: 7,
-      rsiExtreme: 35,
-      slAtrMult: 0.5,
-      minVolumeSurge: 0.8,
+      minVolumeSurge: 1.0,
       maxHoldBars: 48,
       requireHtfSlope: false,
       minConfidence: 60,
@@ -176,24 +149,6 @@ class PulseScalperStrategy extends TradingStrategy {
       rsiExtreme: 30,
       slAtrMult: 0.5,
       minVolumeSurge: 0.8,
-      maxHoldBars: 24,
-      requireHtfSlope: false,
-      minConfidence: 60,
-    ),
-    'ETHUSDT': PulseScalperStrategy(
-      rsiPeriod: 14,
-      rsiExtreme: 35,
-      slAtrMult: 0.5,
-      minVolumeSurge: 1.2,
-      maxHoldBars: 48,
-      requireHtfSlope: true,
-      minConfidence: 60,
-    ),
-    'LINKUSDT': PulseScalperStrategy(
-      rsiPeriod: 7,
-      rsiExtreme: 25,
-      slAtrMult: 0.5,
-      minVolumeSurge: 1.2,
       maxHoldBars: 48,
       requireHtfSlope: false,
       minConfidence: 60,
@@ -202,30 +157,42 @@ class PulseScalperStrategy extends TradingStrategy {
       rsiPeriod: 14,
       rsiExtreme: 30,
       slAtrMult: 0.5,
-      minVolumeSurge: 1.0,
+      minVolumeSurge: 0.8,
       maxHoldBars: 24,
-      requireHtfSlope: false,
+      requireHtfSlope: true,
       minConfidence: 60,
     ),
     'XRPUSDT': PulseScalperStrategy(
       rsiPeriod: 14,
-      rsiExtreme: 25,
+      rsiExtreme: 30,
       slAtrMult: 0.5,
-      minVolumeSurge: 1.2,
+      minVolumeSurge: 0.8,
       maxHoldBars: 48,
       requireHtfSlope: false,
       minConfidence: 60,
     ),
   };
 
-  /// Symbols disabled for the scalper because they go negative under
-  /// the 0.15 % fee stress test (tool/validate_scalper.py). The user
-  /// asked specifically about DOGE / BTC / LINK; the stress test
-  /// confirmed all three plus ADA and AVAX collapse once realistic
-  /// slippage is modelled. Their edge is too thin to survive a
-  /// degraded execution venue.
+  /// Symbols disabled for the scalper. The disable list is the union
+  /// of two validation failures:
+  ///   1. Fee stress test (tool/validate_scalper.py): symbols that go
+  ///      negative at 0.15 % per-side fees. Fail: ADA, AVAX, BTC,
+  ///      DOGE, LINK.
+  ///   2. Walk-forward (tool/walkforward_scalper.py): tune the params
+  ///      on bars 50-75 %, evaluate on the held-out 75-100 % the
+  ///      optimizer never saw. Fail (collapse on unseen data): ADA,
+  ///      AVAX, BTC, DOGE, ETH, LINK.
   ///
-  /// `evaluate()` short-circuits to null for these symbols so the
+  /// ETH passed the fee stress with PF 1.59 but collapsed to PF 0.15
+  /// on truly unseen data — a textbook overfit signature. The
+  /// `_defaultOverrides` for ETH was a 70/30 selection artefact;
+  /// disabling it is the honest call.
+  ///
+  /// Survivors of BOTH validations: BNB, DOT, SOL, XRP. Held-out PnL:
+  /// +$35 + $13 + $7 + $26 = +$81 on the 1-year unseen slice; all
+  /// four have held-out PF > 1.08.
+  ///
+  /// `evaluate()` short-circuits to null for disabled symbols so the
   /// auto-trader never opens a scalper position on them. Caller can
   /// still override via [perSymbolOverrides] if they have data that
   /// contradicts this conclusion.
@@ -234,6 +201,7 @@ class PulseScalperStrategy extends TradingStrategy {
     'AVAXUSDT',
     'BTCUSDT',
     'DOGEUSDT',
+    'ETHUSDT',
     'LINKUSDT',
   };
 

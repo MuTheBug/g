@@ -117,17 +117,34 @@ void main() {
       expect(identical(renko.effectiveFor('UNLISTEDUSDT'), renko), isTrue);
     });
 
-    test('Pulse Scalper has built-in overrides for all 10 majors', () {
+    test('Pulse Scalper has overrides for the 4 validation survivors', () {
       const scalper = PulseScalperStrategy();
-      for (final s in const [
-        'ADAUSDT', 'AVAXUSDT', 'BNBUSDT', 'BTCUSDT', 'DOGEUSDT',
-        'DOTUSDT', 'ETHUSDT', 'LINKUSDT', 'SOLUSDT', 'XRPUSDT',
-      ]) {
+      // The 4 symbols that passed BOTH fee-stress and walk-forward
+      // validation. Other majors are in the disabled set.
+      for (final s in const ['BNBUSDT', 'DOTUSDT', 'SOLUSDT', 'XRPUSDT']) {
         expect(identical(scalper.effectiveFor(s), scalper), isFalse,
             reason: '$s should return a scalper override, not `this`');
+        expect(scalper.isDisabledFor(s), isFalse,
+            reason: '$s should NOT be in the disabled set');
+      }
+      // The 6 symbols that failed at least one validation gate.
+      for (final s in const [
+        'ADAUSDT', 'AVAXUSDT', 'BTCUSDT', 'DOGEUSDT', 'ETHUSDT', 'LINKUSDT',
+      ]) {
+        expect(scalper.isDisabledFor(s), isTrue,
+            reason: '$s should be in the disabled set');
       }
       // Unknown symbol falls back to `this`.
       expect(identical(scalper.effectiveFor('UNKNOWNUSDT'), scalper), isTrue);
+    });
+
+    test('disabled symbols return null from evaluate even with full data', () {
+      const scalper = PulseScalperStrategy();
+      final flat = _flat(300);
+      // ETH is in the disabled set — should always return null, no matter
+      // the data.
+      expect(scalper.evaluate(symbol: 'ETHUSDT', htf: flat, mtf: flat, ltf: flat),
+          isNull);
     });
 
     test('caller-supplied override beats the built-in default', () {
