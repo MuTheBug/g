@@ -218,6 +218,31 @@ class PulseScalperStrategy extends TradingStrategy {
     ),
   };
 
+  /// Symbols disabled for the scalper because they go negative under
+  /// the 0.15 % fee stress test (tool/validate_scalper.py). The user
+  /// asked specifically about DOGE / BTC / LINK; the stress test
+  /// confirmed all three plus ADA and AVAX collapse once realistic
+  /// slippage is modelled. Their edge is too thin to survive a
+  /// degraded execution venue.
+  ///
+  /// `evaluate()` short-circuits to null for these symbols so the
+  /// auto-trader never opens a scalper position on them. Caller can
+  /// still override via [perSymbolOverrides] if they have data that
+  /// contradicts this conclusion.
+  static const Set<String> _disabledForScalper = {
+    'ADAUSDT',
+    'AVAXUSDT',
+    'BTCUSDT',
+    'DOGEUSDT',
+    'LINKUSDT',
+  };
+
+  /// True iff `symbol` is on the disabled list AND the caller didn't
+  /// supply an explicit override. Surfaced for the Backtest UI badge.
+  bool isDisabledFor(String symbol) =>
+      !perSymbolOverrides.containsKey(symbol) &&
+      _disabledForScalper.contains(symbol);
+
   PulseScalperStrategy effectiveFor(String symbol) {
     final caller = perSymbolOverrides[symbol];
     if (caller != null) return caller;
@@ -235,6 +260,10 @@ class PulseScalperStrategy extends TradingStrategy {
     int? nowMs,
   }) {
     if (ltf.length < warmupBars) return null;
+    // Stress-test result (tool/validate_scalper.py): these symbols
+    // turn negative under 0.15 % per-side fees. Skip outright; caller
+    // override via perSymbolOverrides re-enables them.
+    if (isDisabledFor(symbol)) return null;
     final p = effectiveFor(symbol);
 
     final closes = ltf.map((c) => c.close).toList(growable: false);

@@ -82,11 +82,20 @@ class BacktestResult {
     return winsSum / lossesSum;
   }
 
-  /// Expectancy in R-multiples.
+  /// Expectancy in R-multiples — average per trade. The size-independent
+  /// edge measure: +0.30R per trade is good, regardless of margin.
   double get expectancyR {
     if (trades.isEmpty) return 0;
     final rs = trades.map((t) => t.rMultiple).fold<double>(0, (a, r) => a + r);
     return rs / trades.length;
+  }
+
+  /// Total R-multiples across every trade. Headline edge number:
+  /// "+24.1R over 231 trades" means more than "+$52 over 231 trades"
+  /// because it normalises out position size + leverage.
+  double get totalR {
+    if (trades.isEmpty) return 0;
+    return trades.map((t) => t.rMultiple).fold<double>(0, (a, r) => a + r);
   }
 
   /// Worst peak-to-trough drawdown on the equity curve, expressed as a

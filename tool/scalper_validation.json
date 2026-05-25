@@ -1,0 +1,391 @@
+{
+  "fee_default": 0.0004,
+  "fee_high": 0.0015,
+  "margin_per_trade_usdt": 50.0,
+  "leverage": 5,
+  "starting_balance_usdt": 10000.0,
+  "disabled_under_high_fee": [
+    "ADAUSDT",
+    "AVAXUSDT",
+    "BTCUSDT",
+    "DOGEUSDT",
+    "LINKUSDT"
+  ],
+  "total_default_pnl_usdt": 410.2577339656764,
+  "total_stressed_pnl_usdt": -4.207576725009858,
+  "total_totalR": 126.92224000670039,
+  "total_trades": 754,
+  "avg_expectancyR": 0.16833188329801113,
+  "per_symbol": [
+    {
+      "symbol": "ADA_USDT",
+      "params": {
+        "bb_period": 20,
+        "bb_std": 2.0,
+        "rsi_period": 7,
+        "rsi_extreme": 25,
+        "sl_atr_mult": 0.3,
+        "vol_period": 20,
+        "min_volume_surge": 1.0,
+        "max_hold_bars": 48,
+        "require_htf_slope": false,
+        "min_confidence": 60,
+        "atr_period": 14
+      },
+      "default_fee": {
+        "trades": 121,
+        "win_rate": 0.3305785123966942,
+        "profit_factor": 1.2650817078996752,
+        "max_dd_pct": 0.34092222228060454,
+        "net_pnl_usdt": 66.05062672272106,
+        "total_R": 15.8080636530065,
+        "expectancy_R": 0.1306451541570785,
+        "realized_dollars_per_R": 4.178286991535427
+      },
+      "high_fee": {
+        "fee_rate_per_side": 0.0015,
+        "trades": 121,
+        "win_rate": 0.3305785123966942,
+        "profit_factor": 0.998489120948791,
+        "max_dd_pct": 0.41828488618050885,
+        "net_pnl_usdt": -0.4437282091967063,
+        "total_R": 15.8080636530065,
+        "expectancy_R": 0.1306451541570785,
+        "negative_under_stress": null
+      }
+    },
+    {
+      "symbol": "AVAX_USDT",
+      "params": {
+        "bb_period": 20,
+        "bb_std": 2.0,
+        "rsi_period": 7,
+        "rsi_extreme": 30,
+        "sl_atr_mult": 0.5,
+        "vol_period": 20,
+        "min_volume_surge": 1.2,
+        "max_hold_bars": 48,
+        "require_htf_slope": true,
+        "min_confidence": 60,
+        "atr_period": 14
+      },
+      "default_fee": {
+        "trades": 44,
+        "win_rate": 0.38636363636363635,
+        "profit_factor": 1.1369326494030845,
+        "max_dd_pct": 0.25027037345089953,
+        "net_pnl_usdt": 15.465023342387212,
+        "total_R": 10.802819515932569,
+        "expectancy_R": 0.24551862536210384,
+        "realized_dollars_per_R": 1.4315728703583892
+      },
+      "high_fee": {
+        "fee_rate_per_side": 0.0015,
+        "trades": 44,
+        "win_rate": 0.38636363636363635,
+        "profit_factor": 0.9318488407697199,
+        "max_dd_pct": 0.2943403840524899,
+        "net_pnl_usdt": -8.711221928724626,
+        "total_R": 10.802819515932569,
+        "expectancy_R": 0.24551862536210384,
+        "negative_under_stress": null
+      }
+    },
+    {
+      "symbol": "BNB_USDT",
+      "params": {
+        "bb_period": 20,
+        "bb_std": 2.0,
+        "rsi_period": 14,
+        "rsi_extreme": 25,
+        "sl_atr_mult": 0.3,
+        "vol_period": 20,
+        "min_volume_surge": 1.2,
+        "max_hold_bars": 24,
+        "require_htf_slope": false,
+        "min_confidence": 60,
+        "atr_period": 14
+      },
+      "default_fee": {
+        "trades": 24,
+        "win_rate": 0.375,
+        "profit_factor": 1.4190411114620858,
+        "max_dd_pct": 0.1400753052511893,
+        "net_pnl_usdt": 15.030542306980351,
+        "total_R": 5.985567789295045,
+        "expectancy_R": 0.24939865788729354,
+        "realized_dollars_per_R": 2.511130578766795
+      },
+      "high_fee": {
+        "fee_rate_per_side": 0.0015,
+        "trades": 24,
+        "win_rate": 0.3333333333333333,
+        "profit_factor": 1.0408103053387319,
+        "max_dd_pct": 0.20417096209429217,
+        "net_pnl_usdt": 1.8052709085968672,
+        "total_R": 5.985567789295045,
+        "expectancy_R": 0.24939865788729354,
+        "negative_under_stress": null
+      }
+    },
+    {
+      "symbol": "BTC_USDT",
+      "params": {
+        "bb_period": 20,
+        "bb_std": 2.0,
+        "rsi_period": 7,
+        "rsi_extreme": 25,
+        "sl_atr_mult": 0.5,
+        "vol_period": 20,
+        "min_volume_surge": 0.8,
+        "max_hold_bars": 24,
+        "require_htf_slope": true,
+        "min_confidence": 60,
+        "atr_period": 14
+      },
+      "default_fee": {
+        "trades": 47,
+        "win_rate": 0.3829787234042553,
+        "profit_factor": 1.0282807126643212,
+        "max_dd_pct": 0.16574520368261722,
+        "net_pnl_usdt": 1.6348863169423566,
+        "total_R": 6.620824696660102,
+        "expectancy_R": 0.1408686105672362,
+        "realized_dollars_per_R": 0.2469309174984018
+      },
+      "high_fee": {
+        "fee_rate_per_side": 0.0015,
+        "trades": 47,
+        "win_rate": 0.3829787234042553,
+        "profit_factor": 0.672221546444735,
+        "max_dd_pct": 0.37208141633439834,
+        "net_pnl_usdt": -24.17312074247093,
+        "total_R": 6.620824696660102,
+        "expectancy_R": 0.1408686105672362,
+        "negative_under_stress": null
+      }
+    },
+    {
+      "symbol": "DOGE_USDT",
+      "params": {
+        "bb_period": 20,
+        "bb_std": 2.0,
+        "rsi_period": 7,
+        "rsi_extreme": 35,
+        "sl_atr_mult": 0.5,
+        "vol_period": 20,
+        "min_volume_surge": 0.8,
+        "max_hold_bars": 48,
+        "require_htf_slope": false,
+        "min_confidence": 60,
+        "atr_period": 14
+      },
+      "default_fee": {
+        "trades": 231,
+        "win_rate": 0.39826839826839827,
+        "profit_factor": 1.0919939035165689,
+        "max_dd_pct": 1.0035846539363538,
+        "net_pnl_usdt": 52.489674541384375,
+        "total_R": 24.143093124125254,
+        "expectancy_R": 0.10451555464989287,
+        "realized_dollars_per_R": 2.1741072807665014
+      },
+      "high_fee": {
+        "fee_rate_per_side": 0.0015,
+        "trades": 231,
+        "win_rate": 0.39826839826839827,
+        "profit_factor": 0.8847236363528646,
+        "max_dd_pct": 1.6193091413759249,
+        "net_pnl_usdt": -74.58632383716031,
+        "total_R": 24.143093124125254,
+        "expectancy_R": 0.10451555464989287,
+        "negative_under_stress": null
+      }
+    },
+    {
+      "symbol": "DOT_USDT",
+      "params": {
+        "bb_period": 20,
+        "bb_std": 2.0,
+        "rsi_period": 14,
+        "rsi_extreme": 30,
+        "sl_atr_mult": 0.5,
+        "vol_period": 20,
+        "min_volume_surge": 0.8,
+        "max_hold_bars": 24,
+        "require_htf_slope": false,
+        "min_confidence": 60,
+        "atr_period": 14
+      },
+      "default_fee": {
+        "trades": 61,
+        "win_rate": 0.4098360655737705,
+        "profit_factor": 1.285658940980961,
+        "max_dd_pct": 0.2954815807577097,
+        "net_pnl_usdt": 43.64502753731176,
+        "total_R": 16.05467840529189,
+        "expectancy_R": 0.2631914492670802,
+        "realized_dollars_per_R": 2.7185239364823173
+      },
+      "high_fee": {
+        "fee_rate_per_side": 0.0015,
+        "trades": 61,
+        "win_rate": 0.4098360655737705,
+        "profit_factor": 1.0586885929113037,
+        "max_dd_pct": 0.4598370107241927,
+        "net_pnl_usdt": 10.126754047614668,
+        "total_R": 16.05467840529189,
+        "expectancy_R": 0.2631914492670802,
+        "negative_under_stress": null
+      }
+    },
+    {
+      "symbol": "ETH_USDT",
+      "params": {
+        "bb_period": 20,
+        "bb_std": 2.0,
+        "rsi_period": 14,
+        "rsi_extreme": 35,
+        "sl_atr_mult": 0.5,
+        "vol_period": 20,
+        "min_volume_surge": 1.2,
+        "max_hold_bars": 48,
+        "require_htf_slope": true,
+        "min_confidence": 60,
+        "atr_period": 14
+      },
+      "default_fee": {
+        "trades": 37,
+        "win_rate": 0.5405405405405406,
+        "profit_factor": 2.064398495870478,
+        "max_dd_pct": 0.2010257957089037,
+        "net_pnl_usdt": 58.09418626457045,
+        "total_R": 13.564651120350618,
+        "expectancy_R": 0.36661219244190857,
+        "realized_dollars_per_R": 4.282763024948985
+      },
+      "high_fee": {
+        "fee_rate_per_side": 0.0015,
+        "trades": 37,
+        "win_rate": 0.5405405405405406,
+        "profit_factor": 1.590685822884958,
+        "max_dd_pct": 0.23396525876731553,
+        "net_pnl_usdt": 37.76039564466737,
+        "total_R": 13.564651120350618,
+        "expectancy_R": 0.36661219244190857,
+        "negative_under_stress": null
+      }
+    },
+    {
+      "symbol": "LINK_USDT",
+      "params": {
+        "bb_period": 20,
+        "bb_std": 2.0,
+        "rsi_period": 7,
+        "rsi_extreme": 25,
+        "sl_atr_mult": 0.5,
+        "vol_period": 20,
+        "min_volume_surge": 1.2,
+        "max_hold_bars": 48,
+        "require_htf_slope": false,
+        "min_confidence": 60,
+        "atr_period": 14
+      },
+      "default_fee": {
+        "trades": 95,
+        "win_rate": 0.3473684210526316,
+        "profit_factor": 1.0660354831545562,
+        "max_dd_pct": 0.524544931221822,
+        "net_pnl_usdt": 17.352243393577737,
+        "total_R": 0.992642178343014,
+        "expectancy_R": 0.010448865035189622,
+        "realized_dollars_per_R": 17.480864476808033
+      },
+      "high_fee": {
+        "fee_rate_per_side": 0.0015,
+        "trades": 95,
+        "win_rate": 0.3473684210526316,
+        "profit_factor": 0.8826394270313908,
+        "max_dd_pct": 0.7328936049837499,
+        "net_pnl_usdt": -34.84042415028671,
+        "total_R": 0.992642178343014,
+        "expectancy_R": 0.010448865035189622,
+        "negative_under_stress": null
+      }
+    },
+    {
+      "symbol": "SOL_USDT",
+      "params": {
+        "bb_period": 20,
+        "bb_std": 2.0,
+        "rsi_period": 14,
+        "rsi_extreme": 30,
+        "sl_atr_mult": 0.5,
+        "vol_period": 20,
+        "min_volume_surge": 1.0,
+        "max_hold_bars": 24,
+        "require_htf_slope": false,
+        "min_confidence": 60,
+        "atr_period": 14
+      },
+      "default_fee": {
+        "trades": 64,
+        "win_rate": 0.421875,
+        "profit_factor": 1.4241104595247678,
+        "max_dd_pct": 0.44265961193551495,
+        "net_pnl_usdt": 60.429635961663735,
+        "total_R": 20.90538861445841,
+        "expectancy_R": 0.32664669710091265,
+        "realized_dollars_per_R": 2.890624856400416
+      },
+      "high_fee": {
+        "fee_rate_per_side": 0.0015,
+        "trades": 64,
+        "win_rate": 0.421875,
+        "profit_factor": 1.1552617673245922,
+        "max_dd_pct": 0.5090094440324351,
+        "net_pnl_usdt": 25.277822613894386,
+        "total_R": 20.90538861445841,
+        "expectancy_R": 0.32664669710091265,
+        "negative_under_stress": null
+      }
+    },
+    {
+      "symbol": "XRP_USDT",
+      "params": {
+        "bb_period": 20,
+        "bb_std": 2.0,
+        "rsi_period": 14,
+        "rsi_extreme": 25,
+        "sl_atr_mult": 0.5,
+        "vol_period": 20,
+        "min_volume_surge": 1.2,
+        "max_hold_bars": 48,
+        "require_htf_slope": false,
+        "min_confidence": 60,
+        "atr_period": 14
+      },
+      "default_fee": {
+        "trades": 30,
+        "win_rate": 0.4666666666666667,
+        "profit_factor": 2.2263924351226354,
+        "max_dd_pct": 0.16892593502994713,
+        "net_pnl_usdt": 80.06588757813734,
+        "total_R": 12.044510909236987,
+        "expectancy_R": 0.4014836969745662,
+        "realized_dollars_per_R": 6.647500108678923
+      },
+      "high_fee": {
+        "fee_rate_per_side": 0.0015,
+        "trades": 30,
+        "win_rate": 0.4666666666666667,
+        "profit_factor": 1.8584062780831365,
+        "max_dd_pct": 0.18524664478531122,
+        "net_pnl_usdt": 63.57699892805613,
+        "total_R": 12.044510909236987,
+        "expectancy_R": 0.4014836969745662,
+        "negative_under_stress": null
+      }
+    }
+  ]
+}

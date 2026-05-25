@@ -58,9 +58,25 @@ class _BacktestScreenState extends ConsumerState<BacktestScreen> {
       return !identical(base.effectiveFor(symbol), base);
     }
     if (base is PulseScalperStrategy) {
+      // Disabled symbols don't count as "tuned" — they have a
+      // different badge (red, see _isScalperDisabled).
+      if (base.isDisabledFor(symbol)) return false;
       return !identical(base.effectiveFor(symbol), base);
     }
     return false;
+  }
+
+  /// True when the current strategy is Pulse Scalper and the typed
+  /// symbol is in the disabled-under-stress set. Surfaced with a
+  /// distinct warning badge so the user knows the backtest will fire
+  /// no signals.
+  bool get _isScalperDisabled {
+    if (_strategyId != 'scalper') return false;
+    final symbol = _symbolCtrl.text.trim().toUpperCase();
+    if (symbol.isEmpty) return false;
+    final base = StrategyRegistry.fromId('scalper');
+    if (base is! PulseScalperStrategy) return false;
+    return base.isDisabledFor(symbol);
   }
 
   /// Instance of the currently-selected strategy used only to read its
@@ -198,6 +214,32 @@ class _BacktestScreenState extends ConsumerState<BacktestScreen> {
                     'Tuned per-symbol overrides active',
                     style: TextStyle(
                       color: ApexColors.bull,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          if (_isScalperDisabled) ...[
+            const SizedBox(height: 4),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: ApexColors.bear.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(
+                    color: ApexColors.bear.withValues(alpha: 0.4), width: 0.5),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.block, size: 12, color: ApexColors.bear),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Disabled under 0.15 % fee stress — backtest will return no trades',
+                    style: TextStyle(
+                      color: ApexColors.bear,
                       fontSize: 11,
                     ),
                   ),
@@ -413,6 +455,16 @@ class _StatsCard extends StatelessWidget {
                 child: _Stat(
                     label: 'Expectancy',
                     value: '${result.expectancyR.toStringAsFixed(2)}R')),
+            Expanded(
+              child: _Stat(
+                label: 'Total R',
+                value:
+                    '${result.totalR >= 0 ? '+' : ''}${result.totalR.toStringAsFixed(1)}R',
+                color: result.totalR >= 0
+                    ? ApexColors.bull
+                    : ApexColors.bear,
+              ),
+            ),
             Expanded(
               child: _Stat(
                 label: 'Max DD',
