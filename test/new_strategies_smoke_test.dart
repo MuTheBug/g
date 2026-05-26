@@ -1,11 +1,7 @@
 import 'package:apex_trader/data/models/candle.dart';
 import 'package:apex_trader/data/models/timeframe.dart';
-import 'package:apex_trader/domain/coiled_spring_strategy.dart';
-import 'package:apex_trader/domain/hybrid_mtf_renko_strategy.dart';
-import 'package:apex_trader/domain/pulse_scalper_strategy.dart';
-import 'package:apex_trader/domain/strategy.dart';
+import 'package:apex_trader/domain/grid_strategy.dart';
 import 'package:apex_trader/domain/strategy_registry.dart';
-import 'package:apex_trader/domain/volume_surge_reversal_strategy.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 List<Candle> _flat(int n, {double price = 100}) => List<Candle>.generate(
@@ -24,31 +20,12 @@ List<Candle> _flat(int n, {double price = 100}) => List<Candle>.generate(
     );
 
 void main() {
-  group('TradingStrategy supported timeframes', () {
-    test('every strategy declares non-empty support sets', () {
-      for (final d in StrategyRegistry.all) {
-        final s = d.create();
-        expect(s.supportedLtf, isNotEmpty,
-            reason: '${d.id} supportedLtf empty');
-        expect(s.supportedMtf, isNotEmpty,
-            reason: '${d.id} supportedMtf empty');
-        expect(s.supportedHtf, isNotEmpty,
-            reason: '${d.id} supportedHtf empty');
-      }
+  group('StrategyRegistry (grid-only)', () {
+    test('registry contains exactly the grid strategy', () {
+      expect(StrategyRegistry.all, hasLength(1));
+      expect(StrategyRegistry.all.single.id, 'grid');
     });
 
-    test('ORB restricts LTF to short intraday', () {
-      final s = StrategyRegistry.fromId('orb');
-      expect(s.supportedLtf, equals({Timeframe.m5, Timeframe.m15}));
-    });
-
-    test('CSS restricts LTF to ≥ 15m (sub-15m too noisy)', () {
-      final s = StrategyRegistry.fromId('spring');
-      expect(s.supportedLtf, isNot(contains(Timeframe.m5)));
-    });
-  });
-
-  group('StrategyRegistry', () {
     test('every descriptor produces a working instance', () {
       for (final d in StrategyRegistry.all) {
         final s = d.create();
@@ -56,109 +33,98 @@ void main() {
         expect(s.displayName, isNotEmpty);
         expect(s.description, isNotEmpty);
         expect(s.warmupBars, greaterThan(0));
+        expect(s.supportedLtf, isNotEmpty);
+        expect(s.supportedMtf, isNotEmpty);
+        expect(s.supportedHtf, isNotEmpty);
       }
     });
 
-    test('fromId returns Apex for unknown id (graceful fallback)', () {
+    test('fromId returns Grid for unknown id (graceful fallback)', () {
       final unknown = StrategyRegistry.fromId('does-not-exist');
-      expect(unknown.id, 'apex');
+      expect(unknown.id, 'grid');
+    });
+
+    test('labelFromId resolves and falls back gracefully', () {
+      expect(StrategyRegistry.labelFromId('grid'), 'Equilibrium Grid');
+      expect(StrategyRegistry.labelFromId('apex'), 'Equilibrium Grid');
     });
   });
 
-  group('VSR / Renko / CSS smoke', () {
-    test('flat market → no signal for any of the new strategies', () {
+  group('GridStrategy', () {
+    const grid = GridStrategy();
+
+    test('flat market → no signal (no rung crossings)', () {
       final flat = _flat(300);
-      final strategies = <TradingStrategy>[
-        const VolumeSurgeReversalStrategy(),
-        const HybridMtfRenkoStrategy(),
-        const CoiledSpringStrategy(),
-        const PulseScalperStrategy(),
-      ];
-      for (final s in strategies) {
-        expect(s.evaluate(symbol: 'X', htf: flat, mtf: flat, ltf: flat),
-            isNull,
-            reason: '${s.id} fired on flat market');
-      }
+      expect(
+        grid.evaluate(symbol: 'ETHUSDT', htf: flat, mtf: flat, ltf: flat),
+        isNull,
+      );
     });
 
     test('warmup short-circuit', () {
       final tiny = _flat(30);
-      for (final id in const ['vsr', 'renko', 'spring', 'scalper']) {
-        final s = StrategyRegistry.fromId(id);
-        expect(s.evaluate(symbol: 'X', htf: tiny, mtf: tiny, ltf: tiny),
-            isNull);
-      }
+      expect(
+        grid.evaluate(symbol: 'ETHUSDT', htf: tiny, mtf: tiny, ltf: tiny),
+        isNull,
+      );
     });
-  });
 
-  group('HybridMtfRenkoStrategy per-symbol overrides', () {
-    const renko = HybridMtfRenkoStrategy();
-
-    test('built-in defaults exist for all ten tuned majors', () {
-      // effectiveFor returns the override (which has a different
-      // smallMult than the global default for at least BTC/SOL).
-      final btc = renko.effectiveFor('BTCUSDT');
-      final sol = renko.effectiveFor('SOLUSDT');
-      expect(btc.smallMult, isNot(equals(renko.smallMult)),
-          reason: 'BTCUSDT override should differ from global default');
-      expect(sol.smallMult, isNot(equals(renko.smallMult)),
-          reason: 'SOLUSDT override should differ from global default');
-      // Sanity: all 10 majors resolve to non-default instances.
+    test('walk-forward failures are disabled', () {
       for (final s in const [
-        'ADAUSDT', 'AVAXUSDT', 'BNBUSDT', 'BTCUSDT', 'DOGEUSDT',
-        'DOTUSDT', 'ETHUSDT', 'LINKUSDT', 'SOLUSDT', 'XRPUSDT',
+        'AVAXUSDT', 'BNBUSDT', 'BTCUSDT', 'SOLUSDT', 'XRPUSDT',
       ]) {
-        expect(identical(renko.effectiveFor(s), renko), isFalse,
-            reason: '$s should return an override, not `this`');
-      }
-    });
-
-    test('unknown symbol falls back to global params', () {
-      expect(identical(renko.effectiveFor('UNLISTEDUSDT'), renko), isTrue);
-    });
-
-    test('Pulse Scalper has overrides for the 4 validation survivors', () {
-      const scalper = PulseScalperStrategy();
-      // The 4 symbols that passed BOTH fee-stress and walk-forward
-      // validation. Other majors are in the disabled set.
-      for (final s in const ['BNBUSDT', 'DOTUSDT', 'SOLUSDT', 'XRPUSDT']) {
-        expect(identical(scalper.effectiveFor(s), scalper), isFalse,
-            reason: '$s should return a scalper override, not `this`');
-        expect(scalper.isDisabledFor(s), isFalse,
-            reason: '$s should NOT be in the disabled set');
-      }
-      // The 6 symbols that failed at least one validation gate.
-      for (final s in const [
-        'ADAUSDT', 'AVAXUSDT', 'BTCUSDT', 'DOGEUSDT', 'ETHUSDT', 'LINKUSDT',
-      ]) {
-        expect(scalper.isDisabledFor(s), isTrue,
+        expect(grid.isDisabledFor(s), isTrue,
             reason: '$s should be in the disabled set');
       }
-      // Unknown symbol falls back to `this`.
-      expect(identical(scalper.effectiveFor('UNKNOWNUSDT'), scalper), isTrue);
+    });
+
+    test('walk-forward survivors are NOT disabled', () {
+      for (final s in const [
+        'ADAUSDT', 'DOGEUSDT', 'DOTUSDT', 'ETHUSDT', 'LINKUSDT',
+      ]) {
+        expect(grid.isDisabledFor(s), isFalse,
+            reason: '$s should NOT be in the disabled set');
+      }
+    });
+
+    test('survivors resolve to a built-in override, not the global', () {
+      for (final s in const [
+        'ADAUSDT', 'DOGEUSDT', 'DOTUSDT', 'ETHUSDT', 'LINKUSDT',
+      ]) {
+        expect(identical(grid.effectiveFor(s), grid), isFalse,
+            reason: '$s should return its tuned override');
+      }
+    });
+
+    test('unknown symbol falls back to the global params', () {
+      expect(identical(grid.effectiveFor('UNLISTEDUSDT'), grid), isTrue);
     });
 
     test('disabled symbols return null from evaluate even with full data', () {
-      const scalper = PulseScalperStrategy();
       final flat = _flat(300);
-      // ETH is in the disabled set — should always return null, no matter
+      // BTC is in the disabled set — should always return null, no matter
       // the data.
-      expect(scalper.evaluate(symbol: 'ETHUSDT', htf: flat, mtf: flat, ltf: flat),
-          isNull);
+      expect(
+        grid.evaluate(symbol: 'BTCUSDT', htf: flat, mtf: flat, ltf: flat),
+        isNull,
+      );
     });
 
     test('caller-supplied override beats the built-in default', () {
-      const custom = HybridMtfRenkoStrategy(
-        smallMult: 99,
-        mediumMult: 100,
-        largeMult: 101,
-        perSymbolOverrides: {},
+      const custom = GridStrategy(
+        rangeAtrMult: 99,
+        levelsPerSide: 7,
+        hardStopAtrMult: 11,
       );
-      final wrapper = HybridMtfRenkoStrategy(
+      final wrapper = GridStrategy(
         perSymbolOverrides: const {'BTCUSDT': custom},
       );
+      // Caller override also unblocks the disabled set.
+      expect(wrapper.isDisabledFor('BTCUSDT'), isFalse);
       final effective = wrapper.effectiveFor('BTCUSDT');
-      expect(effective.smallMult, equals(99));
+      expect(effective.rangeAtrMult, equals(99));
+      expect(effective.levelsPerSide, equals(7));
+      expect(effective.hardStopAtrMult, equals(11));
     });
   });
 }

@@ -25,7 +25,7 @@ class _SweepScreenState extends ConsumerState<SweepScreen> {
   int _topN = 30;
   int _lookbackDays = 30;
   int _minTrades = 8;
-  String _strategyId = 'apex';
+  String _strategyId = 'grid';
   double _minPf = 1.0;
   bool _applyToScanner = true;
   bool _useWatchlist = false;

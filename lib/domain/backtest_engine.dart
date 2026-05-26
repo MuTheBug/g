@@ -4,6 +4,7 @@ import '../data/api/binance_api.dart';
 import '../data/models/backtest_result.dart';
 import '../data/models/candle.dart';
 import '../data/models/timeframe.dart';
+import 'grid_strategy.dart';
 import 'strategy.dart';
 
 class BacktestConfig {
@@ -18,7 +19,7 @@ class BacktestConfig {
     required this.marginPerTradeUsdt,
     required this.leverage,
     this.feeRate = 0.0004, // Binance taker = 0.04 %
-    this.warmupBars = 220, // ApexConfluenceStrategy needs ~200 bars to compute
+    this.warmupBars = 220, // generous warmup; covers SMA(50) + ATR(14) for the grid
   });
 
   final String symbol;
@@ -34,7 +35,7 @@ class BacktestConfig {
   final int warmupBars;
 }
 
-/// Pure-Dart historical replay of [ApexConfluenceStrategy]. Walks LTF
+/// Pure-Dart historical replay of any [TradingStrategy]. Walks LTF
 /// candles bar-by-bar; at each bar close we ask the strategy whether a
 /// signal exists, simulate the entry on the *next* bar's open, then walk
 /// forward checking each subsequent bar's intra-bar high/low against the
@@ -44,7 +45,7 @@ class BacktestEngine {
     required BinanceApi api,
     TradingStrategy? strategy,
   })  : _api = api,
-        _strategy = strategy ?? const ApexConfluenceStrategy();
+        _strategy = strategy ?? const GridStrategy();
 
   final BinanceApi _api;
   final TradingStrategy _strategy;
