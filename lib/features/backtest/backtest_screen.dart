@@ -5,7 +5,6 @@ import 'package:intl/intl.dart';
 import '../../core/theme.dart';
 import '../../data/models/backtest_result.dart';
 import '../../data/models/timeframe.dart';
-import '../../domain/grid_strategy.dart';
 import '../../domain/strategy.dart';
 import '../../domain/strategy_registry.dart';
 import '../../widgets/common.dart';
@@ -28,7 +27,7 @@ class _BacktestScreenState extends ConsumerState<BacktestScreen> {
   Timeframe _mtf = Timeframe.h1;
   Timeframe _ltf = Timeframe.m15;
   int _daysBack = 30;
-  String _strategyId = 'grid';
+  String _strategyId = 'auto';
 
   @override
   void initState() {
@@ -45,30 +44,13 @@ class _BacktestScreenState extends ConsumerState<BacktestScreen> {
     super.dispose();
   }
 
-  /// True when the current strategy + symbol combo has a built-in
-  /// per-symbol override. Drives the "tuned per-symbol" badge under
-  /// the symbol field. The Equilibrium Grid ships overrides for the 5
-  /// walk-forward survivors (ADA / DOGE / DOT / ETH / LINK).
-  bool get _hasPerSymbolTuning {
-    final symbol = _symbolCtrl.text.trim().toUpperCase();
-    if (symbol.isEmpty) return false;
-    final base = StrategyRegistry.fromId(_strategyId);
-    if (base is GridStrategy) {
-      if (base.isDisabledFor(symbol)) return false;
-      return !identical(base.effectiveFor(symbol), base);
-    }
-    return false;
-  }
-
   /// True when the current strategy + typed symbol is in the
-  /// disabled set. Drives the red "backtest will return no trades"
-  /// badge.
+  /// strategy's hardcoded walk-forward disable set. Drives the red
+  /// "backtest will return no trades" badge.
   bool get _isStrategyDisabledForSymbol {
     final symbol = _symbolCtrl.text.trim().toUpperCase();
     if (symbol.isEmpty) return false;
-    final base = StrategyRegistry.fromId(_strategyId);
-    if (base is GridStrategy) return base.isDisabledFor(symbol);
-    return false;
+    return StrategyRegistry.fromId(_strategyId).isDisabledFor(symbol);
   }
 
   /// Instance of the currently-selected strategy used only to read its
@@ -187,32 +169,6 @@ class _BacktestScreenState extends ConsumerState<BacktestScreen> {
             textCapitalization: TextCapitalization.characters,
             decoration: const InputDecoration(labelText: 'Symbol'),
           ),
-          if (_hasPerSymbolTuning) ...[
-            const SizedBox(height: 4),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              decoration: BoxDecoration(
-                color: ApexColors.bull.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(
-                    color: ApexColors.bull.withValues(alpha: 0.4), width: 0.5),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.tune, size: 12, color: ApexColors.bull),
-                  const SizedBox(width: 4),
-                  Text(
-                    'Tuned per-symbol overrides active',
-                    style: TextStyle(
-                      color: ApexColors.bull,
-                      fontSize: 11,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
           if (_isStrategyDisabledForSymbol) ...[
             const SizedBox(height: 4),
             Container(

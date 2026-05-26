@@ -4,7 +4,7 @@ import '../data/api/binance_api.dart';
 import '../data/models/backtest_result.dart';
 import '../data/models/candle.dart';
 import '../data/models/timeframe.dart';
-import 'grid_strategy.dart';
+import 'mix_strategy.dart';
 import 'strategy.dart';
 
 class BacktestConfig {
@@ -19,7 +19,7 @@ class BacktestConfig {
     required this.marginPerTradeUsdt,
     required this.leverage,
     this.feeRate = 0.0004, // Binance taker = 0.04 %
-    this.warmupBars = 220, // generous warmup; covers SMA(50) + ATR(14) for the grid
+    this.warmupBars = 220, // covers EMA(200) + ADX(14) — the deepest indicator any strategy uses
   });
 
   final String symbol;
@@ -45,7 +45,7 @@ class BacktestEngine {
     required BinanceApi api,
     TradingStrategy? strategy,
   })  : _api = api,
-        _strategy = strategy ?? const GridStrategy();
+        _strategy = strategy ?? const MixStrategy();
 
   final BinanceApi _api;
   final TradingStrategy _strategy;

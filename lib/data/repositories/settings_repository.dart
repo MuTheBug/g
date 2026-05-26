@@ -28,7 +28,7 @@ class AppSettings {
     this.lockInProfits = true,
     this.moveToBeAfterTp1 = true,
     this.moveToTp1AfterTp2 = true,
-    this.strategyId = 'grid',
+    this.strategyId = 'auto',
   });
 
   final int scanLimit;
@@ -67,8 +67,9 @@ class AppSettings {
   final bool moveToBeAfterTp1;
   final bool moveToTp1AfterTp2;
 
-  /// Strategy identifier. Currently only 'grid' (Equilibrium Grid) is
-  /// registered; see [StrategyRegistry]. Default 'grid'.
+  /// Strategy id. One of 'auto' (default; uses [StrategyRouter] to pick
+  /// per symbol), 'hyper', 'mix', 'phase', 'market'. See
+  /// [StrategyRegistry].
   final String strategyId;
 
   AppSettings copyWith({
@@ -191,11 +192,11 @@ class SettingsRepository {
         lockInProfits: p.getBool(_kLockProfits) ?? true,
         moveToBeAfterTp1: p.getBool(_kBeAfterTp1) ?? true,
         moveToTp1AfterTp2: p.getBool(_kTp1AfterTp2) ?? true,
-        // Stale strategyId values from prior installs ('apex' / 'renko' /
-        // 'scalper' / etc.) get coerced to 'grid' at lookup time by
+        // Stale strategyId values from prior installs ('apex' / 'grid' /
+        // 'scalper' / etc.) get coerced to 'auto' at lookup time by
         // StrategyRegistry.fromId — no migration needed beyond this
         // default fallback.
-        strategyId: p.getString(_kStrategyId) ?? 'grid',
+        strategyId: p.getString(_kStrategyId) ?? 'auto',
       );
     } catch (_) {
       return const AppSettings();

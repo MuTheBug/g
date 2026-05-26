@@ -84,7 +84,7 @@ final tradingRepoProvider = Provider<Broker>((ref) {
 });
 
 final strategyProvider = Provider<TradingStrategy>((ref) {
-  final id = ref.watch(settingsProvider).valueOrNull?.strategyId ?? 'grid';
+  final id = ref.watch(settingsProvider).valueOrNull?.strategyId ?? 'auto';
   return StrategyRegistry.fromId(id);
 });
 
