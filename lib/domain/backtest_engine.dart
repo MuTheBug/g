@@ -4,8 +4,8 @@ import '../data/api/binance_api.dart';
 import '../data/models/backtest_result.dart';
 import '../data/models/candle.dart';
 import '../data/models/timeframe.dart';
-import 'mix_strategy.dart';
 import 'strategy.dart';
+import 'trend_rsi_macd_strategy.dart';
 
 class BacktestConfig {
   const BacktestConfig({
@@ -45,7 +45,7 @@ class BacktestEngine {
     required BinanceApi api,
     TradingStrategy? strategy,
   })  : _api = api,
-        _strategy = strategy ?? const MixStrategy();
+        _strategy = strategy ?? const TrendRsiMacdStrategy();
 
   final BinanceApi _api;
   final TradingStrategy _strategy;

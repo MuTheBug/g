@@ -14,9 +14,11 @@ class AppSettings {
     this.excludedSymbols = const <String>{},
     this.watchlist = const <String>{},
     this.biometricLockEnabled = true,
-    this.htfTimeframe = '4h',
-    this.mtfTimeframe = '1h',
-    this.ltfTimeframe = '15m',
+    // Trend RSI-MACD is validated at 4h and only reads the LTF series.
+    // HTF/MTF are unused by it but kept ≥ LTF for sane defaults.
+    this.htfTimeframe = '1d',
+    this.mtfTimeframe = '4h',
+    this.ltfTimeframe = '4h',
     this.autoTradeEnabled = false,
     this.autoTradeMaxOpenPositions = 3,
     this.autoTradeMarginUsdt = 10,
@@ -28,7 +30,7 @@ class AppSettings {
     this.lockInProfits = true,
     this.moveToBeAfterTp1 = true,
     this.moveToTp1AfterTp2 = true,
-    this.strategyId = 'auto',
+    this.strategyId = 'trend_rmacd',
   });
 
   final int scanLimit;
@@ -67,9 +69,8 @@ class AppSettings {
   final bool moveToBeAfterTp1;
   final bool moveToTp1AfterTp2;
 
-  /// Strategy id. One of 'auto' (default; uses [StrategyRouter] to pick
-  /// per symbol), 'hyper', 'mix', 'phase', 'market'. See
-  /// [StrategyRegistry].
+  /// Strategy id. Currently only 'trend_rmacd' (Trend RSI-MACD) is
+  /// registered; see [StrategyRegistry]. Default 'trend_rmacd'.
   final String strategyId;
 
   AppSettings copyWith({
@@ -175,9 +176,9 @@ class SettingsRepository {
         excludedSymbols: (p.getStringList(_kExcluded) ?? const <String>[]).toSet(),
         watchlist: (p.getStringList(_kWatchlist) ?? const <String>[]).toSet(),
         biometricLockEnabled: p.getBool(_kBiometric) ?? true,
-        htfTimeframe: p.getString(_kHtf) ?? '4h',
-        mtfTimeframe: p.getString(_kMtf) ?? '1h',
-        ltfTimeframe: p.getString(_kLtf) ?? '15m',
+        htfTimeframe: p.getString(_kHtf) ?? '1d',
+        mtfTimeframe: p.getString(_kMtf) ?? '4h',
+        ltfTimeframe: p.getString(_kLtf) ?? '4h',
         autoTradeEnabled: p.getBool(_kAtEnabled) ?? false,
         autoTradeMaxOpenPositions: p.getInt(_kAtMax) ?? 3,
         autoTradeMarginUsdt: p.getDouble(_kAtMargin) ?? 10,
@@ -193,10 +194,10 @@ class SettingsRepository {
         moveToBeAfterTp1: p.getBool(_kBeAfterTp1) ?? true,
         moveToTp1AfterTp2: p.getBool(_kTp1AfterTp2) ?? true,
         // Stale strategyId values from prior installs ('apex' / 'grid' /
-        // 'scalper' / etc.) get coerced to 'auto' at lookup time by
+        // 'auto' / etc.) get coerced to 'trend_rmacd' at lookup time by
         // StrategyRegistry.fromId — no migration needed beyond this
         // default fallback.
-        strategyId: p.getString(_kStrategyId) ?? 'auto',
+        strategyId: p.getString(_kStrategyId) ?? 'trend_rmacd',
       );
     } catch (_) {
       return const AppSettings();

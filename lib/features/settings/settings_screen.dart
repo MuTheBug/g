@@ -221,7 +221,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       notifier.update((st) => st.copyWith(strategyId: v)),
                   contentPadding: EdgeInsets.zero,
                   title: Text(d.displayName +
-                      (d.id == 'auto' ? ' (default)' : '')),
+                      (d.id == 'trend_rmacd' ? ' (default)' : '')),
                   subtitle: Text(
                     d.create().description,
                     style: const TextStyle(

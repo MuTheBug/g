@@ -131,10 +131,12 @@ class MarketScanner {
 
   Future<Signal?> _evaluateOne(String symbol, Timeframe htf, Timeframe mtf, Timeframe ltf) async {
     // Issue the three klines requests in parallel — they're independent.
+    // LTF needs >= 300 bars: the strategy's SMA(200) trend filter alone
+    // burns 200, then needs slope + signal history on top.
     final results = await Future.wait([
-      _api.getCandles(symbol, htf, limit: 250),
-      _api.getCandles(symbol, mtf, limit: 250),
-      _api.getCandles(symbol, ltf, limit: 200),
+      _api.getCandles(symbol, htf, limit: 300),
+      _api.getCandles(symbol, mtf, limit: 300),
+      _api.getCandles(symbol, ltf, limit: 300),
     ]);
     final htfCandles = results[0];
     final mtfCandles = results[1];

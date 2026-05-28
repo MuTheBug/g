@@ -1,26 +1,16 @@
-import 'hyper_strategy.dart';
-import 'market_strategy.dart';
-import 'mix_strategy.dart';
-import 'phase_strategy.dart';
 import 'strategy.dart';
-import 'strategy_router.dart';
+import 'trend_rsi_macd_strategy.dart';
 
 /// Single source of truth for the strategies the app can run.
 ///
-/// Five entries:
-///  - `auto`   — the StrategyRouter; classifies each symbol per scan
-///               and dispatches to one of the families below. This is
-///               the default and the only one the scanner uses unless
-///               the user overrides in Settings.
-///  - `hyper`  — short-burst momentum scalping.
-///  - `mix`    — 5-of-6 confluence vote.
-///  - `phase`  — Wyckoff spring / upthrust on compressed ranges.
-///  - `market` — ADX-gated trend-pullback OR mean-revert.
-///
-/// All four families ship hardcoded disable sets from walk-forward
-/// validation (see each strategy's doc comment for the held-out
-/// numbers). Listing them in the registry exposes the per-family
-/// selector in Settings + Backtest + Sweep without any further wiring.
+/// Stripped to one strategy: [TrendRsiMacdStrategy] ("Trend RSI-MACD").
+/// SMA(200) trend regime + a MACD computed on RSI(14). The previous
+/// families (hyper / mix / phase / market / router) were removed after
+/// the user asked for this single design; it won the walk-forward
+/// head-to-head at 4h (9/10 survivors). The registry is the single gate
+/// every UI / provider / pipeline reads, so one entry here means one
+/// strategy everywhere — Settings, Backtest, Sweep, scan pipeline, and
+/// the background dispatcher.
 class StrategyDescriptor {
   const StrategyDescriptor({
     required this.id,
@@ -37,29 +27,9 @@ class StrategyRegistry {
 
   static final List<StrategyDescriptor> all = [
     StrategyDescriptor(
-      id: 'auto',
-      displayName: 'Auto (router)',
-      create: () => const RoutedStrategy(),
-    ),
-    StrategyDescriptor(
-      id: 'hyper',
-      displayName: 'Hyper Scalper',
-      create: () => const HyperStrategy(),
-    ),
-    StrategyDescriptor(
-      id: 'mix',
-      displayName: 'Confluence Mix',
-      create: () => const MixStrategy(),
-    ),
-    StrategyDescriptor(
-      id: 'phase',
-      displayName: 'Wyckoff Phase',
-      create: () => const PhaseStrategy(),
-    ),
-    StrategyDescriptor(
-      id: 'market',
-      displayName: 'Market Regime',
-      create: () => const MarketStrategy(),
+      id: 'trend_rmacd',
+      displayName: 'Trend RSI-MACD',
+      create: () => const TrendRsiMacdStrategy(),
     ),
   ];
 
@@ -67,7 +37,8 @@ class StrategyRegistry {
     for (final d in all) {
       if (d.id == id) return d.create();
     }
-    // Unknown id (stale prefs from a prior install) lands on auto.
+    // Unknown id (stale prefs from a prior install) lands on the only
+    // registered strategy.
     return all.first.create();
   }
 

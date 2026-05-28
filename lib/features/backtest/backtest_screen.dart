@@ -23,11 +23,12 @@ class _BacktestScreenState extends ConsumerState<BacktestScreen> {
   final _balanceCtrl = TextEditingController(text: '10000');
   final _marginCtrl = TextEditingController(text: '50');
   int _leverage = 5;
-  Timeframe _htf = Timeframe.h4;
-  Timeframe _mtf = Timeframe.h1;
-  Timeframe _ltf = Timeframe.m15;
-  int _daysBack = 30;
-  String _strategyId = 'auto';
+  // Defaults match Trend RSI-MACD's supported sets (validated at 4h).
+  Timeframe _htf = Timeframe.d1;
+  Timeframe _mtf = Timeframe.h4;
+  Timeframe _ltf = Timeframe.h4;
+  int _daysBack = 365;
+  String _strategyId = 'trend_rmacd';
 
   @override
   void initState() {
@@ -230,11 +231,13 @@ class _BacktestScreenState extends ConsumerState<BacktestScreen> {
           Text('Lookback: $_daysBack days',
               style: const TextStyle(color: ApexColors.textMuted)),
           Slider(
+            // 4h + SMA(200) burns ~33 days on warmup alone, so allow long
+            // lookbacks. Step in 5-day increments.
             value: _daysBack.toDouble(),
-            min: 7,
-            max: 90,
-            divisions: 83,
-            onChanged: (v) => setState(() => _daysBack = v.round()),
+            min: 30,
+            max: 720,
+            divisions: 138,
+            onChanged: (v) => setState(() => _daysBack = (v / 5).round() * 5),
           ),
           const SizedBox(height: 6),
           // TF options filtered to what the selected strategy supports —

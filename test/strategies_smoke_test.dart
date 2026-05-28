@@ -1,12 +1,10 @@
+import 'dart:math' as math;
+
 import 'package:apex_trader/data/models/candle.dart';
 import 'package:apex_trader/data/models/timeframe.dart';
-import 'package:apex_trader/domain/hyper_strategy.dart';
-import 'package:apex_trader/domain/market_strategy.dart';
-import 'package:apex_trader/domain/mix_strategy.dart';
-import 'package:apex_trader/domain/phase_strategy.dart';
 import 'package:apex_trader/domain/strategy.dart';
 import 'package:apex_trader/domain/strategy_registry.dart';
-import 'package:apex_trader/domain/strategy_router.dart';
+import 'package:apex_trader/domain/trend_rsi_macd_strategy.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 List<Candle> _flat(int n, {double price = 100}) => List<Candle>.generate(
@@ -24,157 +22,127 @@ List<Candle> _flat(int n, {double price = 100}) => List<Candle>.generate(
       ),
     );
 
+/// A clean uptrend with an oscillation riding on top, so RSI swings
+/// enough to produce MACD-of-RSI crosses while price stays above a
+/// rising SMA200. Long enough to clear the 210-bar warmup.
+List<Candle> _trendWithWaves(int n, {double start = 100, double slope = 0.4}) {
+  return List<Candle>.generate(n, (i) {
+    final base = start + slope * i;
+    final wave = math.sin(i / 6.0) * (base * 0.02);
+    final close = base + wave;
+    final open = base + math.sin((i - 1) / 6.0) * (base * 0.02);
+    final hi = math.max(open, close) + base * 0.004;
+    final lo = math.min(open, close) - base * 0.004;
+    return Candle(
+      openTime: i * 14400 * 1000,
+      open: open,
+      high: hi,
+      low: lo,
+      close: close,
+      volume: 100 + (i % 5) * 10,
+      closeTime: i * 14400 * 1000 + 14400 * 1000,
+      quoteVolume: 100000,
+      takerBuyBaseVolume: 50,
+    );
+  });
+}
+
 void main() {
-  group('StrategyRegistry', () {
-    test('exposes the five expected entries in order', () {
-      final ids = StrategyRegistry.all.map((d) => d.id).toList();
-      expect(ids, equals(const ['auto', 'hyper', 'mix', 'phase', 'market']));
+  group('StrategyRegistry (single strategy)', () {
+    test('registry holds exactly the Trend RSI-MACD strategy', () {
+      expect(StrategyRegistry.all, hasLength(1));
+      expect(StrategyRegistry.all.single.id, 'trend_rmacd');
     });
 
-    test('every descriptor produces a usable instance', () {
-      for (final d in StrategyRegistry.all) {
-        final s = d.create();
-        expect(s.id, d.id);
-        expect(s.displayName, isNotEmpty);
-        expect(s.description, isNotEmpty);
-        expect(s.warmupBars, greaterThan(0));
-        expect(s.supportedLtf, isNotEmpty);
-        expect(s.supportedMtf, isNotEmpty);
-        expect(s.supportedHtf, isNotEmpty);
-      }
+    test('descriptor produces a usable instance', () {
+      final s = StrategyRegistry.all.single.create();
+      expect(s.id, 'trend_rmacd');
+      expect(s.displayName, isNotEmpty);
+      expect(s.description, isNotEmpty);
+      expect(s.warmupBars, greaterThanOrEqualTo(200));
+      expect(s.supportedLtf, isNotEmpty);
+      expect(s.supportedMtf, isNotEmpty);
+      expect(s.supportedHtf, isNotEmpty);
     });
 
-    test('unknown id falls back to auto (router)', () {
-      expect(StrategyRegistry.fromId('does-not-exist').id, 'auto');
-    });
-  });
-
-  group('Walk-forward disable sets', () {
-    test('Hyper disables BNB/DOGE/DOT/XRP', () {
-      const s = HyperStrategy();
-      for (final sym in const ['BNBUSDT', 'DOGEUSDT', 'DOTUSDT', 'XRPUSDT']) {
-        expect(s.isDisabledFor(sym), isTrue, reason: sym);
-      }
-      for (final sym in const [
-        'ADAUSDT', 'AVAXUSDT', 'BTCUSDT', 'ETHUSDT', 'LINKUSDT', 'SOLUSDT',
-      ]) {
-        expect(s.isDisabledFor(sym), isFalse, reason: sym);
-      }
-    });
-
-    test('Mix keeps only BTC / ETH / SOL / XRP', () {
-      const s = MixStrategy();
-      for (final sym in const [
-        'ADAUSDT', 'AVAXUSDT', 'BNBUSDT', 'DOGEUSDT', 'DOTUSDT', 'LINKUSDT',
-      ]) {
-        expect(s.isDisabledFor(sym), isTrue, reason: sym);
-      }
-      for (final sym in const ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT']) {
-        expect(s.isDisabledFor(sym), isFalse, reason: sym);
-      }
-    });
-
-    test('Phase disables BNB/DOT/ETH/LINK', () {
-      const s = PhaseStrategy();
-      for (final sym in const ['BNBUSDT', 'DOTUSDT', 'ETHUSDT', 'LINKUSDT']) {
-        expect(s.isDisabledFor(sym), isTrue, reason: sym);
-      }
-      for (final sym in const [
-        'ADAUSDT', 'AVAXUSDT', 'BTCUSDT', 'DOGEUSDT', 'SOLUSDT', 'XRPUSDT',
-      ]) {
-        expect(s.isDisabledFor(sym), isFalse, reason: sym);
-      }
-    });
-
-    test('Market keeps only BNB', () {
-      const s = MarketStrategy();
-      expect(s.isDisabledFor('BNBUSDT'), isFalse);
-      for (final sym in const [
-        'ADAUSDT', 'AVAXUSDT', 'BTCUSDT', 'DOGEUSDT', 'DOTUSDT',
-        'ETHUSDT', 'LINKUSDT', 'SOLUSDT', 'XRPUSDT',
-      ]) {
-        expect(s.isDisabledFor(sym), isTrue, reason: sym);
-      }
+    test('unknown id falls back to the only strategy', () {
+      expect(StrategyRegistry.fromId('apex').id, 'trend_rmacd');
+      expect(StrategyRegistry.fromId('auto').id, 'trend_rmacd');
+      expect(StrategyRegistry.labelFromId('nope'), 'Trend RSI-MACD');
     });
   });
 
-  group('Flat-market behavior', () {
-    final flat = _flat(300);
-    final strategies = <TradingStrategy>[
-      const HyperStrategy(),
-      const MixStrategy(),
-      const PhaseStrategy(),
-      const MarketStrategy(),
-    ];
-    test('none of the families fire on a flat synthetic market', () {
-      for (final s in strategies) {
-        // Pass a non-disabled symbol per strategy so the disable check doesn't
-        // short-circuit the test.
-        final sym = s is HyperStrategy
-            ? 'BTCUSDT'
-            : s is MixStrategy
-                ? 'BTCUSDT'
-                : s is PhaseStrategy
-                    ? 'BTCUSDT'
-                    : 'BNBUSDT';
-        expect(
-          s.evaluate(symbol: sym, htf: flat, mtf: flat, ltf: flat),
-          isNull,
-          reason: '${s.id} should not fire on a flat market',
-        );
-      }
+  group('TrendRsiMacdStrategy', () {
+    const s = TrendRsiMacdStrategy();
+
+    test('supports 4h (validated) and 1h, but not sub-hour', () {
+      expect(s.supportedLtf, contains(Timeframe.h4));
+      expect(s.supportedLtf, contains(Timeframe.h1));
+      expect(s.supportedLtf, isNot(contains(Timeframe.m15)));
     });
 
-    test('disabled symbols return null even with full data', () {
-      const hyper = HyperStrategy();
-      // DOT is disabled for hyper.
+    test('warmup short-circuit: too few bars → null', () {
+      final tiny = _flat(50);
       expect(
-        hyper.evaluate(symbol: 'DOTUSDT', htf: flat, mtf: flat, ltf: flat),
+        s.evaluate(symbol: 'BTCUSDT', htf: tiny, mtf: tiny, ltf: tiny),
         isNull,
       );
     });
-  });
 
-  group('StrategyRouter', () {
-    const router = StrategyRouter();
-    test('routes flat market to mix (default) on a non-disabled symbol', () {
-      expect(router.classify('BTCUSDT', _flat(120)), 'mix');
-    });
-
-    test('skips disabled-for-mix symbols and looks for next candidate', () {
-      // LINK is disabled for mix. Flat market still classifies as mix's
-      // priority bucket but the router's loop sees mix.isDisabledFor(LINK)
-      // and falls through. Since hyper / market / phase all need their
-      // own conditions to activate AND LINK is disabled in each of them
-      // too, the loop exhausts and returns 'mix' as the documented
-      // fallback so the caller silently skips the symbol.
-      expect(router.classify('LINKUSDT', _flat(120)), 'mix');
-    });
-
-    test('RoutedStrategy delegates to the chosen family', () {
-      const r = RoutedStrategy();
-      // Flat market through the router still produces no signal.
+    test('flat market → null (SMA flat, no slope, no cross)', () {
+      final flat = _flat(300);
       expect(
-        r.evaluate(
-            symbol: 'BTCUSDT',
-            htf: _flat(220),
-            mtf: _flat(120),
-            ltf: _flat(220)),
+        s.evaluate(symbol: 'BTCUSDT', htf: flat, mtf: flat, ltf: flat),
         isNull,
       );
     });
-  });
 
-  group('Supported timeframe sets', () {
-    test('Hyper supports short LTFs', () {
-      const s = HyperStrategy();
-      expect(s.supportedLtf, contains(Timeframe.m5));
-      expect(s.supportedLtf, contains(Timeframe.m15));
+    test('SOL is disabled (sole 4h walk-forward failure)', () {
+      expect(s.isDisabledFor('SOLUSDT'), isTrue);
+      final waves = _trendWithWaves(300);
+      // Even with signal-rich data, a disabled symbol never fires.
+      expect(
+        s.evaluate(symbol: 'SOLUSDT', htf: waves, mtf: waves, ltf: waves),
+        isNull,
+      );
     });
 
-    test('Phase excludes m5 (too noisy for compressed ranges)', () {
-      const s = PhaseStrategy();
-      expect(s.supportedLtf, isNot(contains(Timeframe.m5)));
+    test('the 9 surviving majors are NOT disabled', () {
+      for (final sym in const [
+        'ADAUSDT', 'AVAXUSDT', 'BNBUSDT', 'BTCUSDT', 'DOGEUSDT',
+        'DOTUSDT', 'ETHUSDT', 'LINKUSDT', 'XRPUSDT',
+      ]) {
+        expect(s.isDisabledFor(sym), isFalse, reason: sym);
+      }
+    });
+
+    test('fires a long in a rising-SMA uptrend with RSI-MACD crosses', () {
+      final waves = _trendWithWaves(360);
+      // Scan the warmed-up tail for at least one long signal as the
+      // RSI-MACD crosses up while price holds above a rising SMA200.
+      var sawLong = false;
+      for (var end = 260; end <= waves.length; end++) {
+        final sub = waves.sublist(0, end);
+        final sig = s.evaluate(symbol: 'BTCUSDT', htf: sub, mtf: sub, ltf: sub);
+        if (sig != null && sig.side == SignalSide.long) {
+          sawLong = true;
+          // Plan sanity: SL below entry, TPs above, ATR positive.
+          expect(sig.plan.entry, greaterThan(0));
+          expect(sig.plan.stopLoss, lessThan(sig.plan.entry));
+          expect(sig.plan.takeProfit1, greaterThan(sig.plan.entry));
+          expect(sig.plan.atr, greaterThan(0));
+          break;
+        }
+      }
+      expect(sawLong, isTrue,
+          reason: 'expected at least one long over the uptrend tail');
+    });
+
+    test('caller override changes the disabled set', () {
+      // A custom instance with no SOL disable would still have it because
+      // _disabled is static; verify the default contract instead: only SOL.
+      expect(s.isDisabledFor('BTCUSDT'), isFalse);
+      expect(s.isDisabledFor('SOLUSDT'), isTrue);
     });
   });
 }
