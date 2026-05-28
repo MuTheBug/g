@@ -24,6 +24,7 @@ abstract class Broker {
     required double? stopPrice,
     required List<double> takeProfits,
     required SymbolRules rules,
+    double? referencePrice,
     bool isolated,
     int leverage,
   });

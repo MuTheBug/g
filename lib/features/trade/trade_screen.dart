@@ -186,6 +186,9 @@ class _TradeScreenState extends ConsumerState<TradeScreen> {
             stopPrice: sl,
             takeProfits: tps,
             rules: rules,
+            // The SL/TP fields were entered relative to this mark; let the
+            // broker re-anchor them to the actual fill.
+            referencePrice: _entry > 0 ? _entry : null,
             isolated: _isolated,
             leverage: _leverage,
           );
@@ -194,6 +197,7 @@ class _TradeScreenState extends ConsumerState<TradeScreen> {
       try {
         final filledPx = r.entry.avgPrice == 0 ? r.entry.price : r.entry.avgPrice;
         final settings = await ref.read(settingsRepoProvider).load();
+        final jTps = r.effectiveTakeProfits;
         await ref.read(journalRepoProvider).add(JournalEntry(
               id: 'manual-${DateTime.now().microsecondsSinceEpoch}-${widget.symbol}',
               symbol: widget.symbol,
@@ -203,10 +207,10 @@ class _TradeScreenState extends ConsumerState<TradeScreen> {
               quantity: r.entry.executedQty > 0 ? r.entry.executedQty : _quantity,
               leverage: _leverage,
               marginUsdt: _margin,
-              stopLoss: _effectiveSl,
-              takeProfit1: _effectiveTp1,
-              takeProfit2: _effectiveTp2,
-              takeProfit3: _effectiveTp3,
+              stopLoss: r.effectiveStopLoss ?? _effectiveSl,
+              takeProfit1: jTps.isNotEmpty ? jTps[0] : _effectiveTp1,
+              takeProfit2: jTps.length > 1 ? jTps[1] : _effectiveTp2,
+              takeProfit3: jTps.length > 2 ? jTps[2] : _effectiveTp3,
               confidence: _signal?.confidence ?? 0,
               autoTraded: false,
               paper: settings.tradingMode == TradingMode.paper,

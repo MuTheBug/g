@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 
+import '../../domain/bracket_math.dart';
 import '../../domain/strategy.dart';
 import '../api/binance_ws.dart';
 import '../models/account.dart';
@@ -141,23 +142,51 @@ class PaperTradingRepository implements Broker {
     required double? stopPrice,
     required List<double> takeProfits,
     required SymbolRules rules,
+    double? referencePrice,
     bool isolated = true,
     int leverage = 5,
   }) async {
     await _ensureBalance();
     final entryPrice = await getMarkPrice(symbol);
+    final fill = entryPrice > 0 ? entryPrice : (stopPrice ?? 1);
     final marginUsdt = entryPrice > 0
         ? (entryPrice * quantity) / leverage
         : 0.0;
+
+    // Mirror the live path: re-anchor SL/TP to the (paper) fill price so the
+    // intended risk distance is preserved and the stop sits on the correct
+    // side of entry, instead of using the stale signal-close levels.
+    double? effStop = stopPrice;
+    var effTps = takeProfits.where((t) => t > 0).toList();
+    if (referencePrice != null && referencePrice > 0 && fill > 0) {
+      if (stopPrice != null && stopPrice > 0) {
+        effStop = BracketMath.reanchorStop(
+              side: side,
+              referencePrice: referencePrice,
+              stopPrice: stopPrice,
+              fillPrice: fill,
+            ) ??
+            stopPrice;
+      }
+      effTps = effTps
+          .map((tp) => BracketMath.reanchorTp(
+                side: side,
+                referencePrice: referencePrice,
+                tp: tp,
+                fillPrice: fill,
+              ))
+          .toList();
+    }
+
     final pos = _PaperPosition(
       symbol: symbol,
       side: side,
-      entryPrice: entryPrice > 0 ? entryPrice : (stopPrice ?? 1),
+      entryPrice: fill,
       quantity: rules.roundQuantity(quantity),
       leverage: leverage,
       marginUsdt: marginUsdt,
-      stopLoss: stopPrice ?? 0,
-      takeProfits: takeProfits.where((t) => t > 0).toList(),
+      stopLoss: effStop ?? 0,
+      takeProfits: effTps,
     );
     _positions[symbol] = pos;
     _subscribeMark(symbol);
@@ -173,6 +202,8 @@ class PaperTradingRepository implements Broker {
         price: pos.entryPrice,
       ),
       warnings: const [],
+      effectiveStopLoss: effStop,
+      effectiveTakeProfits: effTps,
     );
   }
 

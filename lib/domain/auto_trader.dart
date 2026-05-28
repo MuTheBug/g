@@ -119,10 +119,17 @@ class AutoTrader {
               ? [sig.plan.takeProfit1, sig.plan.takeProfit2, sig.plan.takeProfit3]
               : const [],
           rules: rules,
+          // Anchor the SL/TP distances to this so the broker can re-anchor
+          // them to the live fill — the signal price is from a closed candle.
+          referencePrice: sig.plan.entry,
           isolated: settings.isolatedMargin,
           leverage: settings.defaultLeverage,
         );
         final filledPrice = r.entry.avgPrice == 0 ? r.entry.price : r.entry.avgPrice;
+        // Journal the levels actually placed (re-anchored to the fill), not
+        // the stale signal levels.
+        final jStop = r.effectiveStopLoss ?? sig.plan.stopLoss;
+        final jTps = r.effectiveTakeProfits;
         placed.add('${sig.symbol} ${sig.side == SignalSide.long ? "LONG" : "SHORT"} '
             '${sig.confidence}% @ $filledPrice');
         warnings.addAll(r.warnings.map((w) => '${sig.symbol}: $w'));
@@ -140,10 +147,10 @@ class AutoTrader {
           quantity: r.entry.executedQty > 0 ? r.entry.executedQty : quantity,
           leverage: settings.defaultLeverage,
           marginUsdt: settings.autoTradeMarginUsdt,
-          stopLoss: sig.plan.stopLoss,
-          takeProfit1: sig.plan.takeProfit1,
-          takeProfit2: sig.plan.takeProfit2,
-          takeProfit3: sig.plan.takeProfit3,
+          stopLoss: jStop,
+          takeProfit1: jTps.isNotEmpty ? jTps[0] : sig.plan.takeProfit1,
+          takeProfit2: jTps.length > 1 ? jTps[1] : sig.plan.takeProfit2,
+          takeProfit3: jTps.length > 2 ? jTps[2] : sig.plan.takeProfit3,
           confidence: sig.confidence,
           autoTraded: true,
           paper: settings.tradingMode == TradingMode.paper,

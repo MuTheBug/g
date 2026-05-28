@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 
+import '../../domain/bracket_math.dart';
 import '../../domain/strategy.dart';
 import '../api/binance_api.dart';
 import '../models/account.dart';
@@ -7,9 +8,22 @@ import '../models/symbol_rules.dart';
 import 'broker.dart';
 
 class BracketResult {
-  const BracketResult({required this.entry, required this.warnings});
+  const BracketResult({
+    required this.entry,
+    required this.warnings,
+    this.effectiveStopLoss,
+    this.effectiveTakeProfits = const [],
+  });
   final OrderResult entry;
   final List<String> warnings;
+
+  /// The stop-loss actually placed, after re-anchoring to the fill price
+  /// and clamping to the correct side of mark. Null if no SL was placed.
+  /// Callers should journal THIS rather than the requested level.
+  final double? effectiveStopLoss;
+
+  /// The take-profits actually placed (re-anchored to the fill).
+  final List<double> effectiveTakeProfits;
 }
 
 class OrderTestResult {
@@ -163,6 +177,7 @@ class TradingRepository implements Broker {
     required double? stopPrice,
     required List<double> takeProfits,
     required SymbolRules rules,
+    double? referencePrice,
     bool isolated = true,
     int leverage = 5,
   }) async {
@@ -206,6 +221,38 @@ class TradingRepository implements Broker {
       mark = await _api.getMarkPrice(symbol);
     } catch (_) {/* skip validation if mark fetch fails */}
 
+    // The SL/TP levels were computed against [referencePrice] (the signal's
+    // planned entry, taken from a *closed* candle). The market order just
+    // filled at the live price, which can differ enough that a level lands
+    // on the wrong side of mark and Binance rejects it with -2021 "would
+    // immediately trigger". Re-anchor every level to the actual fill so the
+    // intended risk distance is preserved and each level sits on its correct
+    // side of where we really entered.
+    final fillPrice = entry.avgPrice > 0
+        ? entry.avgPrice
+        : (mark > 0 ? mark : (referencePrice ?? 0));
+    double? reqStop = stopPrice;
+    var reqTps = takeProfits;
+    if (referencePrice != null && referencePrice > 0 && fillPrice > 0) {
+      if (stopPrice != null && stopPrice > 0) {
+        reqStop = BracketMath.reanchorStop(
+              side: side,
+              referencePrice: referencePrice,
+              stopPrice: stopPrice,
+              fillPrice: fillPrice,
+            ) ??
+            stopPrice;
+      }
+      reqTps = takeProfits
+          .map((tp) => BracketMath.reanchorTp(
+                side: side,
+                referencePrice: referencePrice,
+                tp: tp,
+                fillPrice: fillPrice,
+              ))
+          .toList();
+    }
+
     // Each bracket is placed as a `reduceOnly` order with an explicit quantity
     // instead of the older `closePosition: true` shape. Binance now routes
     // closePosition-based stop orders through their algo-order endpoint on
@@ -215,21 +262,30 @@ class TradingRepository implements Broker {
     // remaining orders become no-ops because there's nothing left to reduce.
     final qtyStr = rules.formatQuantity(filledQty);
 
-    // 3) Stop-loss (full position).
-    if (stopPrice != null && stopPrice > 0) {
-      final rounded = rules.formatPrice(stopPrice);
-      final stop = double.tryParse(rounded) ?? stopPrice;
-      final validationError = _validateBracket(
-        side: side, kind: _BracketKind.sl, mark: mark, stop: stop,
+    // 3) Stop-loss (full position). A protective stop is the whole point of
+    //    bracketing, so we NEVER skip it — if the requested level is on the
+    //    wrong side of mark we clamp it just past mark instead of dropping it.
+    double? placedStop;
+    if (reqStop != null && reqStop > 0) {
+      final safeStop = BracketMath.safeTriggerOnSide(
+        side: side, isStopLoss: true, mark: mark, desired: reqStop,
+        rules: rules,
       );
-      if (validationError != null) {
-        warnings.add(validationError);
+      if (safeStop == null) {
+        warnings.add('SL skipped: could not derive a valid stop price');
       } else {
+        if (mark > 0 && (safeStop - reqStop).abs() > rules.tickSize) {
+          warnings.add(
+              'SL adjusted to ${rules.formatPrice(safeStop)} (requested '
+              '${rules.formatPrice(reqStop)} would trigger immediately vs '
+              'mark $mark)');
+        }
+        placedStop = safeStop;
         await _placeBracket(
           symbol: symbol,
           closeSide: closeSide,
           type: 'STOP_MARKET',
-          stopPriceFormatted: rounded,
+          stopPriceFormatted: rules.formatPrice(safeStop),
           quantityFormatted: qtyStr,
           tag: 'SL',
           warnings: warnings,
@@ -240,16 +296,20 @@ class TradingRepository implements Broker {
     // 4) Take-profits. Split the position so multiple TPs can fire
     //    incrementally — TP1 33%, TP2 33%, TP3 34% (or as close as the symbol's
     //    stepSize permits). If a portion falls below the symbol's minNotional
-    //    we collapse to a single TP with the full filled quantity.
+    //    we collapse to a single TP with the full filled quantity. Unlike the
+    //    SL, a TP that's already on the wrong side of mark means price has
+    //    blown past it — we skip it (taking profit now is the user's call),
+    //    we don't clamp it onto the wrong side.
+    final placedTps = <double>[];
     final tpQuantities = _splitForTakeProfits(
       filledQty: filledQty,
-      numTps: takeProfits.where((t) => t > 0).length,
-      entryPrice: stopPrice != null && stopPrice > 0 ? entry.avgPrice : 0,
+      numTps: reqTps.where((t) => t > 0).length,
+      entryPrice: reqStop != null && reqStop > 0 ? fillPrice : 0,
       rules: rules,
     );
     var tpIndex = 0;
-    for (var i = 0; i < takeProfits.length; i++) {
-      final tp = takeProfits[i];
+    for (var i = 0; i < reqTps.length; i++) {
+      final tp = reqTps[i];
       if (tp <= 0) continue;
       final rounded = rules.formatPrice(tp);
       final stop = double.tryParse(rounded) ?? tp;
@@ -271,10 +331,16 @@ class TradingRepository implements Broker {
         tag: 'TP${i + 1}',
         warnings: warnings,
       );
+      placedTps.add(stop);
       tpIndex++;
     }
 
-    return BracketResult(entry: entry, warnings: warnings);
+    return BracketResult(
+      entry: entry,
+      warnings: warnings,
+      effectiveStopLoss: placedStop,
+      effectiveTakeProfits: placedTps,
+    );
   }
 
   /// Splits [filledQty] across [numTps] take-profit orders, respecting the
@@ -418,6 +484,7 @@ class TradingRepository implements Broker {
     return e.toString();
   }
 
+
   /// Returns a human-readable reason if [stop] is on the wrong side of [mark]
   /// for this side/kind. Mark = 0 means "couldn't fetch, skip validation".
   String? _validateBracket({
@@ -484,7 +551,28 @@ class TradingRepository implements Broker {
     final closeSide = side == SignalSide.long ? 'SELL' : 'BUY';
     final hedge = await _isHedgeMode();
     final positionSide = side == SignalSide.long ? 'LONG' : 'SHORT';
-    final roundedStop = rules.formatPrice(newStopPrice);
+
+    // This method cancels the existing stop BEFORE placing the new one, so a
+    // -2021 "would immediately trigger" rejection here would leave the
+    // position naked. Clamp the new stop to the protective side of mark first
+    // so the placement can't fail on direction. (A whipsaw can momentarily
+    // push the ratcheted stop onto the wrong side of the live mark.)
+    double mark = 0;
+    try {
+      mark = await _api.getMarkPrice(symbol);
+    } catch (_) {/* if mark is unknown we place the requested level as-is */}
+    final safeStop = BracketMath.safeTriggerOnSide(
+          side: side,
+          isStopLoss: true,
+          mark: mark,
+          desired: newStopPrice,
+          rules: rules,
+          // This algo order sets priceProtect, which needs ~0.5 % clearance
+          // from mark; clamp past that band so a clamped stop isn't rejected.
+          bufferPct: 0.006,
+        ) ??
+        newStopPrice;
+    final roundedStop = rules.formatPrice(safeStop);
     final qtyStr = rules.formatQuantity(quantity);
 
     // 1) Cancel the existing algo SL (if any). Look at the algo endpoint
