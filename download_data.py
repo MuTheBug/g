@@ -49,49 +49,79 @@ def download_ohlcv(exchange, symbol, timeframe='1h', since_ms=None):
             
     return all_ohlcv
 
+def discover_top_symbols(exchange, n):
+    """Return the top-N USDT-M perpetual symbols by 24h quote volume.
+
+    Uses the futures market (binanceusdm) so 'top by volume' reflects the
+    perps the app actually trades. Returns a list of (ccxt_symbol, base)
+    tuples, e.g. ('BTC/USDT:USDT', 'BTC'), sorted by volume desc.
+    """
+    markets = exchange.load_markets()
+    tickers = exchange.fetch_tickers()
+    rows = []
+    for sym, m in markets.items():
+        if not m.get('swap'):           # perpetual only
+            continue
+        if m.get('quote') != 'USDT' or m.get('settle') != 'USDT':
+            continue
+        if not m.get('active', True):
+            continue
+        t = tickers.get(sym)
+        qv = (t or {}).get('quoteVolume') or 0
+        rows.append((qv, sym, m.get('base')))
+    rows.sort(reverse=True)             # highest volume first
+    return [(sym, base) for _qv, sym, base in rows[:n]]
+
 def main():
     keys_path = '/root/keys.txt'
     keys = load_keys(keys_path)
-    
+
     if not keys or 'BINANCE_API_KEY' not in keys or 'BINANCE_API_SECRET' not in keys:
         print("Missing Binance API keys in /root/keys.txt")
         return
 
-    exchange = ccxt.binance({
+    # ---- knobs ----
+    # The EMA Stack Trend strategy is validated on the DAILY timeframe, so we
+    # pull daily candles (small: ~6yr is only ~2200 rows/symbol). To validate
+    # the breadth plan ("does it work across the top 50?") we auto-discover the
+    # 50 highest-volume USDT-M perps and download each.
+    TIMEFRAME = '1d'
+    TOP_N = 50
+    YEARS = 6
+
+    # USDT-M futures — matches what the app trades and what "top by volume"
+    # should reflect.
+    exchange = ccxt.binanceusdm({
         'apiKey': keys['BINANCE_API_KEY'],
         'secret': keys['BINANCE_API_SECRET'],
         'enableRateLimit': True,
     })
 
-    # Five extra majors added to broaden the optimizer roster — covers
-    # a meme coin (DOGE), an L1 alt (AVAX), a utility token (LINK),
-    # and two established alts (ADA, DOT). Combined with the original
-    # five (BTC/ETH/BNB/SOL/XRP) this gives a 10-symbol universe
-    # spanning multiple market regimes.
-    symbols = [
-        'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'XRP/USDT',
-        'DOGE/USDT', 'AVAX/USDT', 'LINK/USDT', 'ADA/USDT', 'DOT/USDT',
-    ]
-    timeframe = '1h'
-    
-    # 4 years ago
-    four_years_ago = datetime.now() - timedelta(days=4*365)
-    since_ms = int(four_years_ago.timestamp() * 1000)
-    
+    print(f"Discovering top {TOP_N} USDT-M perps by 24h volume...")
+    top = discover_top_symbols(exchange, TOP_N)
+    print(f"Got {len(top)}: {', '.join(b for _s, b in top)}")
+
+    since_ms = int((datetime.now() - timedelta(days=YEARS * 365)).timestamp() * 1000)
     os.makedirs('data', exist_ok=True)
 
-    for symbol in symbols:
-        ohlcv = download_ohlcv(exchange, symbol, timeframe, since_ms)
-        
+    saved = 0
+    for ccxt_symbol, base in top:
+        ohlcv = download_ohlcv(exchange, ccxt_symbol, TIMEFRAME, since_ms)
         if ohlcv:
             df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
             df['datetime'] = pd.to_datetime(df['timestamp'], unit='ms')
-            
-            filename = f"data/{symbol.replace('/', '_')}_{timeframe}.csv"
+            # Drop a duplicated last row if the loop captured a forming candle.
+            df = df.drop_duplicates(subset='timestamp').reset_index(drop=True)
+            # Naming matches the validator: data/{BASE}_USDT_1d.csv
+            filename = f"data/{base}_USDT_{TIMEFRAME}.csv"
             df.to_csv(filename, index=False)
-            print(f"Saved {symbol} data to {filename}")
+            saved += 1
+            print(f"Saved {base} ({len(df)} daily candles) -> {filename}")
         else:
-            print(f"No data found for {symbol}")
+            print(f"No data for {base}")
+    print(f"\nDone. Saved {saved}/{len(top)} symbols of daily data to data/.")
+    print("Now commit + push the data/*_USDT_1d.csv files, then I'll run "
+          "tool/validate_top50.py.")
 
 if __name__ == "__main__":
     main()
