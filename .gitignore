@@ -48,3 +48,7 @@ api-keys.txt
 *.g.dart
 !**/golden/**/*.g.dart
 *.freezed.dart
+
+# Python (offline backtest/validation tools under tool/)
+__pycache__/
+*.pyc
