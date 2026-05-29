@@ -6,6 +6,7 @@ import '../data/models/ticker.dart';
 import '../data/models/timeframe.dart';
 import '../data/repositories/settings_repository.dart';
 import 'strategy.dart';
+import 'universe.dart';
 
 class ScanProgress {
   const ScanProgress({
@@ -56,7 +57,10 @@ class MarketScanner {
         ? settings.validatedSymbols
         : null;
     final filtered = tickers
-        .where((t) => t.symbol.endsWith('USDT'))
+        // Crypto-only: drop tokenized stocks / commodities / FX that ride the
+        // same futures venue. The strategy was validated on crypto; trading
+        // tokenized silver would be off-distribution.
+        .where((t) => TradeUniverse.isTradableCrypto(t.symbol))
         .where((t) => !settings.excludedSymbols.contains(t.symbol))
         .where((t) => validatedGate == null || validatedGate.contains(t.symbol))
         .toList()

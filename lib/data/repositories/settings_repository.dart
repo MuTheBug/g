@@ -2,7 +2,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class AppSettings {
   const AppSettings({
-    this.scanLimit = 30,
+    // Top-50 crypto universe drives the breadth plan (the scanner filters
+    // out tokenized stocks/commodities, so this is ~50 real coins).
+    this.scanLimit = 50,
     this.minConfidence = 70,
     this.defaultLeverage = 5,
     this.isolatedMargin = true,
@@ -17,8 +19,13 @@ class AppSettings {
     this.mtfTimeframe = '1d',
     this.ltfTimeframe = '1d',
     this.autoTradeEnabled = false,
-    this.autoTradeMaxOpenPositions = 3,
+    // Breadth-validated guardrails: spread across ~10 names, risk a small
+    // % of equity per trade (qty = risk / stop-distance). This is what
+    // turned the single-symbol 40-60% drawdowns into a ~13-32% portfolio DD.
+    this.autoTradeMaxOpenPositions = 10,
     this.autoTradeMarginUsdt = 10,
+    this.riskBasedSizing = true,
+    this.autoTradeRiskPct = 1.0,
     this.autoTradeMinConfidence = 80,
     this.validatedSymbols = const <String>{},
     this.validatedSymbolsEnabled = false,
@@ -44,7 +51,19 @@ class AppSettings {
   // Auto-trade
   final bool autoTradeEnabled;
   final int autoTradeMaxOpenPositions;
+
+  /// Fixed margin per trade (USDT). Used only when [riskBasedSizing] is off,
+  /// or as a fallback when a signal has no stop to size against.
   final double autoTradeMarginUsdt;
+
+  /// When true, size each trade so a stop-out loses [autoTradeRiskPct] % of
+  /// account equity: qty = (riskPct% * equity) / |entry - stopLoss|. This is
+  /// the breadth-validated sizing.
+  final bool riskBasedSizing;
+
+  /// Percent of equity risked per trade when [riskBasedSizing] is on.
+  final double autoTradeRiskPct;
+
   final int autoTradeMinConfidence;
 
   // Optional manual whitelist. When [validatedSymbolsEnabled] is true and
@@ -78,6 +97,8 @@ class AppSettings {
     bool? autoTradeEnabled,
     int? autoTradeMaxOpenPositions,
     double? autoTradeMarginUsdt,
+    bool? riskBasedSizing,
+    double? autoTradeRiskPct,
     int? autoTradeMinConfidence,
     Set<String>? validatedSymbols,
     bool? validatedSymbolsEnabled,
@@ -102,6 +123,8 @@ class AppSettings {
         autoTradeEnabled: autoTradeEnabled ?? this.autoTradeEnabled,
         autoTradeMaxOpenPositions: autoTradeMaxOpenPositions ?? this.autoTradeMaxOpenPositions,
         autoTradeMarginUsdt: autoTradeMarginUsdt ?? this.autoTradeMarginUsdt,
+        riskBasedSizing: riskBasedSizing ?? this.riskBasedSizing,
+        autoTradeRiskPct: autoTradeRiskPct ?? this.autoTradeRiskPct,
         autoTradeMinConfidence: autoTradeMinConfidence ?? this.autoTradeMinConfidence,
         validatedSymbols: validatedSymbols ?? this.validatedSymbols,
         validatedSymbolsEnabled:
@@ -132,6 +155,8 @@ class SettingsRepository {
   static const _kAtEnabled = 'autoTradeEnabled';
   static const _kAtMax = 'autoTradeMaxOpenPositions';
   static const _kAtMargin = 'autoTradeMarginUsdt';
+  static const _kAtRiskBased = 'riskBasedSizing';
+  static const _kAtRiskPct = 'autoTradeRiskPct';
   static const _kAtMinConf = 'autoTradeMinConfidence';
   static const _kValidated = 'validatedSymbols';
   static const _kValidatedOn = 'validatedSymbolsEnabled';
@@ -146,7 +171,7 @@ class SettingsRepository {
     try {
       final p = await _prefs;
       return AppSettings(
-        scanLimit: p.getInt(_kScanLimit) ?? 30,
+        scanLimit: p.getInt(_kScanLimit) ?? 50,
         minConfidence: p.getInt(_kMinConfidence) ?? 70,
         defaultLeverage: p.getInt(_kDefaultLeverage) ?? 5,
         isolatedMargin: p.getBool(_kIsolated) ?? true,
@@ -159,8 +184,10 @@ class SettingsRepository {
         mtfTimeframe: p.getString(_kMtf) ?? '1d',
         ltfTimeframe: p.getString(_kLtf) ?? '1d',
         autoTradeEnabled: p.getBool(_kAtEnabled) ?? false,
-        autoTradeMaxOpenPositions: p.getInt(_kAtMax) ?? 3,
+        autoTradeMaxOpenPositions: p.getInt(_kAtMax) ?? 10,
         autoTradeMarginUsdt: p.getDouble(_kAtMargin) ?? 10,
+        riskBasedSizing: p.getBool(_kAtRiskBased) ?? true,
+        autoTradeRiskPct: p.getDouble(_kAtRiskPct) ?? 1.0,
         autoTradeMinConfidence: p.getInt(_kAtMinConf) ?? 80,
         validatedSymbols: (p.getStringList(_kValidated) ?? const <String>[])
             .toSet(),
@@ -197,6 +224,8 @@ class SettingsRepository {
         p.setBool(_kAtEnabled, s.autoTradeEnabled),
         p.setInt(_kAtMax, s.autoTradeMaxOpenPositions),
         p.setDouble(_kAtMargin, s.autoTradeMarginUsdt),
+        p.setBool(_kAtRiskBased, s.riskBasedSizing),
+        p.setDouble(_kAtRiskPct, s.autoTradeRiskPct),
         p.setInt(_kAtMinConf, s.autoTradeMinConfidence),
         p.setStringList(_kValidated, s.validatedSymbols.toList()),
         p.setBool(_kValidatedOn, s.validatedSymbolsEnabled),

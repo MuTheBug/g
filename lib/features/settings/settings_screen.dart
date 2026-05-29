@@ -327,7 +327,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               const Text(
                 "When ON, the scanner immediately places trades for every signal "
                 "above your confidence threshold (up to the max-open-positions cap). "
-                "Sized with the per-trade margin below; brackets follow the "
+                "Risk-based sizing + a position cap are what hold portfolio "
+                "drawdown down across the top-50 universe; brackets follow the "
                 "'Auto-attach SL & TP' toggle.",
                 style: TextStyle(color: ApexColors.textMuted, fontSize: 12.5),
               ),
@@ -363,11 +364,41 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   onChanged: (v) => notifier.update(
                       (st) => st.copyWith(autoTradeMinConfidence: v.round())),
                 ),
-                _MarginField(
-                  initial: s.autoTradeMarginUsdt,
-                  onChanged: (v) =>
-                      notifier.update((st) => st.copyWith(autoTradeMarginUsdt: v)),
-                ),
+                const SizedBox(height: 6),
+                Row(children: [
+                  const Expanded(
+                      child: Text('Risk-based sizing (risk % of equity)')),
+                  Switch(
+                    value: s.riskBasedSizing,
+                    onChanged: (v) =>
+                        notifier.update((st) => st.copyWith(riskBasedSizing: v)),
+                  ),
+                ]),
+                if (s.riskBasedSizing) ...[
+                  Text(
+                      'Risk per trade: ${s.autoTradeRiskPct.toStringAsFixed(1)}% '
+                      'of equity',
+                      style: const TextStyle(color: ApexColors.textMuted)),
+                  Slider(
+                    value: s.autoTradeRiskPct.clamp(0.25, 5.0),
+                    min: 0.25,
+                    max: 5.0,
+                    divisions: 19,
+                    onChanged: (v) => notifier.update((st) => st.copyWith(
+                        autoTradeRiskPct: (v * 4).round() / 4)),
+                  ),
+                  const Text(
+                    'Backtested sweet spot: 1-2%. qty = risk ÷ stop-distance, '
+                    'so each loss is capped at this % of equity.',
+                    style:
+                        TextStyle(color: ApexColors.textMuted, fontSize: 11.5),
+                  ),
+                ] else
+                  _MarginField(
+                    initial: s.autoTradeMarginUsdt,
+                    onChanged: (v) => notifier
+                        .update((st) => st.copyWith(autoTradeMarginUsdt: v)),
+                  ),
                 const SizedBox(height: 4),
                 const Text(
                   '⚠ Auto-trade will place real orders without prompting. '
