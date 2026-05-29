@@ -153,7 +153,7 @@ class AutoTrader {
           takeProfit3: jTps.length > 2 ? jTps[2] : sig.plan.takeProfit3,
           confidence: sig.confidence,
           autoTraded: true,
-          paper: settings.tradingMode == TradingMode.paper,
+          paper: false,
         ));
       } catch (e) {
         warnings.add('${sig.symbol} order failed: ${_pretty(e)}');

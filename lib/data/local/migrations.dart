@@ -89,39 +89,6 @@ class Migrations {
     batch.execute(
         'CREATE INDEX idx_scan_logs_scan ON scan_auto_trade_logs(scan_id)');
 
-    batch.execute('''
-      CREATE TABLE symbol_performance (
-        symbol TEXT PRIMARY KEY,
-        best_htf TEXT NOT NULL,
-        best_mtf TEXT NOT NULL,
-        best_ltf TEXT NOT NULL,
-        trades INTEGER NOT NULL,
-        win_rate REAL NOT NULL,
-        profit_factor REAL NOT NULL,
-        expectancy_r REAL NOT NULL,
-        max_drawdown_pct REAL NOT NULL,
-        composite_score REAL NOT NULL,
-        validated INTEGER NOT NULL,
-        excluded_reason TEXT,
-        last_validated_at INTEGER NOT NULL,
-        sample_period_ms INTEGER NOT NULL
-      )
-    ''');
-
-    batch.execute('''
-      CREATE TABLE equity_snapshots (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        taken_at INTEGER NOT NULL,
-        wallet_balance REAL NOT NULL,
-        unrealized_pnl REAL NOT NULL,
-        margin_balance REAL NOT NULL,
-        open_positions INTEGER NOT NULL,
-        paper INTEGER NOT NULL
-      )
-    ''');
-    batch.execute(
-        'CREATE INDEX idx_equity_taken_at ON equity_snapshots(taken_at DESC)');
-
     await batch.commit(noResult: true);
   }
 

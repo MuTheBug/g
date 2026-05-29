@@ -207,84 +207,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 4),
               const Text(
-                'Which set of rules the scanner / auto-trader uses. Both '
-                'output the same Signal shape so backtest, paper, and live '
-                'all work either way.',
+                'The rules the scanner and auto-trader run.',
                 style: TextStyle(color: ApexColors.textMuted, fontSize: 12.5),
               ),
               const SizedBox(height: 8),
               for (final d in StrategyRegistry.all)
-                RadioListTile<String>(
-                  value: d.id,
-                  groupValue: s.strategyId,
-                  onChanged: (v) =>
-                      notifier.update((st) => st.copyWith(strategyId: v)),
+                ListTile(
                   contentPadding: EdgeInsets.zero,
-                  title: Text(d.displayName +
-                      (d.id == 'trend_rmacd' ? ' (default)' : '')),
+                  title: Text(d.displayName),
                   subtitle: Text(
                     d.create().description,
                     style: const TextStyle(
                         color: ApexColors.textMuted, fontSize: 12),
                   ),
                 ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 10),
-
-        // -------- Trading mode --------
-        ApexCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Trading mode', style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 6),
-              const Text(
-                'LIVE places real orders on Binance. PAPER routes every trade '
-                "to a local in-memory broker driven by the WebSocket mark "
-                "price — same UI, no money at risk.",
-                style: TextStyle(color: ApexColors.textMuted, fontSize: 12.5),
-              ),
-              const SizedBox(height: 8),
-              SegmentedButton<TradingMode>(
-                segments: const [
-                  ButtonSegment(value: TradingMode.live, label: Text('LIVE')),
-                  ButtonSegment(value: TradingMode.paper, label: Text('PAPER')),
-                ],
-                selected: {s.tradingMode},
-                onSelectionChanged: (sel) =>
-                    notifier.update((st) => st.copyWith(tradingMode: sel.first)),
-              ),
-              if (s.tradingMode == TradingMode.paper) ...[
-                const SizedBox(height: 10),
-                Text('Paper starting balance: ${s.paperStartingBalance.toStringAsFixed(0)} USDT',
-                    style: const TextStyle(color: ApexColors.textMuted)),
-                Slider(
-                  value: s.paperStartingBalance.clamp(100, 100000).toDouble(),
-                  min: 100,
-                  max: 100000,
-                  divisions: 100,
-                  onChanged: (v) => notifier.update((st) =>
-                      st.copyWith(paperStartingBalance: (v / 100).round() * 100.0)),
-                ),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton(
-                    onPressed: () async {
-                      final bal = s.paperStartingBalance;
-                      await ref.read(paperTradingRepoProvider).reset(bal);
-                      if (!mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                            content: Text(
-                                'Paper account reset to ${bal.toStringAsFixed(0)} USDT')),
-                      );
-                    },
-                    child: const Text('Reset paper account'),
-                  ),
-                ),
-              ],
             ],
           ),
         ),

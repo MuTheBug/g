@@ -58,11 +58,6 @@ void backgroundCallbackDispatcher() {
       }
       final api = BinanceApi(creds);
       final settings = await SettingsRepository.instance.load();
-      // Paper mode requires the WebSocket-driven PaperBroker, which lives
-      // in the foreground isolate. Force-disable auto-trade for paper runs
-      // here — the scan + record + notification still fire, but trades
-      // wait for a foreground session.
-      final isPaper = settings.tradingMode == TradingMode.paper;
       final liveBroker = TradingRepository(api);
       final TradingStrategy strategy =
           StrategyRegistry.fromId(settings.strategyId);
@@ -91,7 +86,6 @@ void backgroundCallbackDispatcher() {
         source: source,
         parallelism: 2,
         perSymbolTimeout: const Duration(seconds: 25),
-        overrideAutoTradeEnabled: isPaper ? false : null,
       );
       return true;
     } catch (e, st) {

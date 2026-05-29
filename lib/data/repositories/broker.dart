@@ -3,11 +3,9 @@ import '../models/account.dart';
 import '../models/symbol_rules.dart';
 import 'trading_repository.dart';
 
-/// Common surface implemented by both the live [TradingRepository] and the
-/// in-memory [PaperTradingRepository]. Callers (TradeScreen, AutoTrader,
-/// PositionsScreen, JournalController) depend on this interface, not the
-/// concrete class, so flipping the trading mode in Settings transparently
-/// re-routes every order placement.
+/// Common surface implemented by [TradingRepository] (live Binance REST).
+/// Callers (TradeScreen, AutoTrader, PositionsScreen, ScanPipeline) depend
+/// on this interface, not the concrete class.
 abstract class Broker {
   Future<SymbolRules?> getSymbolRules(String symbol);
 

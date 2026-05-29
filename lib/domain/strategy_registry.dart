@@ -1,16 +1,12 @@
+import 'ema_stack_strategy.dart';
 import 'strategy.dart';
-import 'trend_rsi_macd_strategy.dart';
 
-/// Single source of truth for the strategies the app can run.
+/// Single source of truth for the strategy the app runs.
 ///
-/// Stripped to one strategy: [TrendRsiMacdStrategy] ("Trend RSI-MACD").
-/// SMA(200) trend regime + a MACD computed on RSI(14). The previous
-/// families (hyper / mix / phase / market / router) were removed after
-/// the user asked for this single design; it won the walk-forward
-/// head-to-head at 4h (9/10 survivors). The registry is the single gate
-/// every UI / provider / pipeline reads, so one entry here means one
-/// strategy everywhere — Settings, Backtest, Sweep, scan pipeline, and
-/// the background dispatcher.
+/// One entry: [EmaStackStrategy] ("EMA Stack Trend") — a daily
+/// trend-follower (EMA 8/21/50 stack + 5-bar persistence + ADX>30,
+/// 3xATR catastrophic stop, EMA8/21 cross-back exit). Everything else
+/// was removed when the app was stripped down to this strategy.
 class StrategyDescriptor {
   const StrategyDescriptor({
     required this.id,
@@ -27,9 +23,9 @@ class StrategyRegistry {
 
   static final List<StrategyDescriptor> all = [
     StrategyDescriptor(
-      id: 'trend_rmacd',
-      displayName: 'Trend RSI-MACD',
-      create: () => const TrendRsiMacdStrategy(),
+      id: 'ema_stack',
+      displayName: 'EMA Stack Trend',
+      create: () => const EmaStackStrategy(),
     ),
   ];
 
@@ -37,8 +33,7 @@ class StrategyRegistry {
     for (final d in all) {
       if (d.id == id) return d.create();
     }
-    // Unknown id (stale prefs from a prior install) lands on the only
-    // registered strategy.
+    // Unknown id (stale prefs from a prior install) -> the only strategy.
     return all.first.create();
   }
 

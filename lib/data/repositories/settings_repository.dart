@@ -1,7 +1,5 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
-enum TradingMode { live, paper }
-
 class AppSettings {
   const AppSettings({
     this.scanLimit = 30,
@@ -12,25 +10,22 @@ class AppSettings {
     this.backgroundScanEnabled = false,
     this.backgroundScanIntervalMin = 15,
     this.excludedSymbols = const <String>{},
-    this.watchlist = const <String>{},
     this.biometricLockEnabled = true,
-    // Trend RSI-MACD is validated at 4h and only reads the LTF series.
-    // HTF/MTF are unused by it but kept ≥ LTF for sane defaults.
+    // EMA Stack Trend is a daily strategy and only reads the LTF series;
+    // all three default to the daily.
     this.htfTimeframe = '1d',
-    this.mtfTimeframe = '4h',
-    this.ltfTimeframe = '4h',
+    this.mtfTimeframe = '1d',
+    this.ltfTimeframe = '1d',
     this.autoTradeEnabled = false,
     this.autoTradeMaxOpenPositions = 3,
     this.autoTradeMarginUsdt = 10,
     this.autoTradeMinConfidence = 80,
-    this.tradingMode = TradingMode.live,
-    this.paperStartingBalance = 10000,
     this.validatedSymbols = const <String>{},
     this.validatedSymbolsEnabled = false,
     this.lockInProfits = true,
     this.moveToBeAfterTp1 = true,
     this.moveToTp1AfterTp2 = true,
-    this.strategyId = 'trend_rmacd',
+    this.strategyId = 'ema_stack',
   });
 
   final int scanLimit;
@@ -41,7 +36,6 @@ class AppSettings {
   final bool backgroundScanEnabled;
   final int backgroundScanIntervalMin;
   final Set<String> excludedSymbols;
-  final Set<String> watchlist;
   final bool biometricLockEnabled;
   final String htfTimeframe;
   final String mtfTimeframe;
@@ -53,13 +47,8 @@ class AppSettings {
   final double autoTradeMarginUsdt;
   final int autoTradeMinConfidence;
 
-  // Mode + paper account
-  final TradingMode tradingMode;
-  final double paperStartingBalance;
-
-  // Multi-symbol-backtest-driven whitelist. When [validatedSymbolsEnabled]
-  // is true and the set is non-empty, the scanner + auto-trader skip any
-  // symbol outside the set.
+  // Optional manual whitelist. When [validatedSymbolsEnabled] is true and
+  // the set is non-empty, the scanner only considers these symbols.
   final Set<String> validatedSymbols;
   final bool validatedSymbolsEnabled;
 
@@ -69,8 +58,8 @@ class AppSettings {
   final bool moveToBeAfterTp1;
   final bool moveToTp1AfterTp2;
 
-  /// Strategy id. Currently only 'trend_rmacd' (Trend RSI-MACD) is
-  /// registered; see [StrategyRegistry]. Default 'trend_rmacd'.
+  /// Strategy id. Only 'ema_stack' (EMA Stack Trend) is registered; see
+  /// [StrategyRegistry]. Default 'ema_stack'.
   final String strategyId;
 
   AppSettings copyWith({
@@ -82,7 +71,6 @@ class AppSettings {
     bool? backgroundScanEnabled,
     int? backgroundScanIntervalMin,
     Set<String>? excludedSymbols,
-    Set<String>? watchlist,
     bool? biometricLockEnabled,
     String? htfTimeframe,
     String? mtfTimeframe,
@@ -91,8 +79,6 @@ class AppSettings {
     int? autoTradeMaxOpenPositions,
     double? autoTradeMarginUsdt,
     int? autoTradeMinConfidence,
-    TradingMode? tradingMode,
-    double? paperStartingBalance,
     Set<String>? validatedSymbols,
     bool? validatedSymbolsEnabled,
     bool? lockInProfits,
@@ -109,7 +95,6 @@ class AppSettings {
         backgroundScanEnabled: backgroundScanEnabled ?? this.backgroundScanEnabled,
         backgroundScanIntervalMin: backgroundScanIntervalMin ?? this.backgroundScanIntervalMin,
         excludedSymbols: excludedSymbols ?? this.excludedSymbols,
-        watchlist: watchlist ?? this.watchlist,
         biometricLockEnabled: biometricLockEnabled ?? this.biometricLockEnabled,
         htfTimeframe: htfTimeframe ?? this.htfTimeframe,
         mtfTimeframe: mtfTimeframe ?? this.mtfTimeframe,
@@ -118,8 +103,6 @@ class AppSettings {
         autoTradeMaxOpenPositions: autoTradeMaxOpenPositions ?? this.autoTradeMaxOpenPositions,
         autoTradeMarginUsdt: autoTradeMarginUsdt ?? this.autoTradeMarginUsdt,
         autoTradeMinConfidence: autoTradeMinConfidence ?? this.autoTradeMinConfidence,
-        tradingMode: tradingMode ?? this.tradingMode,
-        paperStartingBalance: paperStartingBalance ?? this.paperStartingBalance,
         validatedSymbols: validatedSymbols ?? this.validatedSymbols,
         validatedSymbolsEnabled:
             validatedSymbolsEnabled ?? this.validatedSymbolsEnabled,
@@ -142,7 +125,6 @@ class SettingsRepository {
   static const _kBgEnabled = 'backgroundScanEnabled';
   static const _kBgInterval = 'backgroundScanIntervalMin';
   static const _kExcluded = 'excludedSymbols';
-  static const _kWatchlist = 'watchlist';
   static const _kBiometric = 'biometricLockEnabled';
   static const _kHtf = 'htfTimeframe';
   static const _kMtf = 'mtfTimeframe';
@@ -151,8 +133,6 @@ class SettingsRepository {
   static const _kAtMax = 'autoTradeMaxOpenPositions';
   static const _kAtMargin = 'autoTradeMarginUsdt';
   static const _kAtMinConf = 'autoTradeMinConfidence';
-  static const _kTradingMode = 'tradingMode';
-  static const _kPaperBal = 'paperStartingBalance';
   static const _kValidated = 'validatedSymbols';
   static const _kValidatedOn = 'validatedSymbolsEnabled';
   static const _kLockProfits = 'lockInProfits';
@@ -174,30 +154,24 @@ class SettingsRepository {
         backgroundScanEnabled: p.getBool(_kBgEnabled) ?? false,
         backgroundScanIntervalMin: p.getInt(_kBgInterval) ?? 15,
         excludedSymbols: (p.getStringList(_kExcluded) ?? const <String>[]).toSet(),
-        watchlist: (p.getStringList(_kWatchlist) ?? const <String>[]).toSet(),
         biometricLockEnabled: p.getBool(_kBiometric) ?? true,
         htfTimeframe: p.getString(_kHtf) ?? '1d',
-        mtfTimeframe: p.getString(_kMtf) ?? '4h',
-        ltfTimeframe: p.getString(_kLtf) ?? '4h',
+        mtfTimeframe: p.getString(_kMtf) ?? '1d',
+        ltfTimeframe: p.getString(_kLtf) ?? '1d',
         autoTradeEnabled: p.getBool(_kAtEnabled) ?? false,
         autoTradeMaxOpenPositions: p.getInt(_kAtMax) ?? 3,
         autoTradeMarginUsdt: p.getDouble(_kAtMargin) ?? 10,
         autoTradeMinConfidence: p.getInt(_kAtMinConf) ?? 80,
-        tradingMode: (p.getString(_kTradingMode) ?? 'live') == 'paper'
-            ? TradingMode.paper
-            : TradingMode.live,
-        paperStartingBalance: p.getDouble(_kPaperBal) ?? 10000,
         validatedSymbols: (p.getStringList(_kValidated) ?? const <String>[])
             .toSet(),
         validatedSymbolsEnabled: p.getBool(_kValidatedOn) ?? false,
         lockInProfits: p.getBool(_kLockProfits) ?? true,
         moveToBeAfterTp1: p.getBool(_kBeAfterTp1) ?? true,
         moveToTp1AfterTp2: p.getBool(_kTp1AfterTp2) ?? true,
-        // Stale strategyId values from prior installs ('apex' / 'grid' /
-        // 'auto' / etc.) get coerced to 'trend_rmacd' at lookup time by
-        // StrategyRegistry.fromId — no migration needed beyond this
-        // default fallback.
-        strategyId: p.getString(_kStrategyId) ?? 'trend_rmacd',
+        // Stale strategyId values from prior installs ('trend_rmacd' /
+        // 'grid' / etc.) get coerced to 'ema_stack' at lookup time by
+        // StrategyRegistry.fromId — no migration needed beyond this default.
+        strategyId: p.getString(_kStrategyId) ?? 'ema_stack',
       );
     } catch (_) {
       return const AppSettings();
@@ -216,7 +190,6 @@ class SettingsRepository {
         p.setBool(_kBgEnabled, s.backgroundScanEnabled),
         p.setInt(_kBgInterval, s.backgroundScanIntervalMin),
         p.setStringList(_kExcluded, s.excludedSymbols.toList()),
-        p.setStringList(_kWatchlist, s.watchlist.toList()),
         p.setBool(_kBiometric, s.biometricLockEnabled),
         p.setString(_kHtf, s.htfTimeframe),
         p.setString(_kMtf, s.mtfTimeframe),
@@ -225,8 +198,6 @@ class SettingsRepository {
         p.setInt(_kAtMax, s.autoTradeMaxOpenPositions),
         p.setDouble(_kAtMargin, s.autoTradeMarginUsdt),
         p.setInt(_kAtMinConf, s.autoTradeMinConfidence),
-        p.setString(_kTradingMode, s.tradingMode == TradingMode.paper ? 'paper' : 'live'),
-        p.setDouble(_kPaperBal, s.paperStartingBalance),
         p.setStringList(_kValidated, s.validatedSymbols.toList()),
         p.setBool(_kValidatedOn, s.validatedSymbolsEnabled),
         p.setBool(_kLockProfits, s.lockInProfits),

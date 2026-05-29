@@ -119,8 +119,7 @@ abstract class TradingStrategy {
 
   /// True if [symbol] failed this strategy's walk-forward validation
   /// and is hardcoded off. [evaluate] should also return null when
-  /// this is true; the auto-router checks this to pick the next
-  /// candidate. Default: never disabled.
+  /// this is true. Default: never disabled.
   bool isDisabledFor(String symbol) => false;
 
   Signal? evaluate({
@@ -130,4 +129,12 @@ abstract class TradingStrategy {
     required List<Candle> ltf,
     int? nowMs,
   });
+
+  /// Dynamic-exit hook for strategies that close on an indicator
+  /// condition rather than fixed take-profit orders. The scan pipeline
+  /// calls this each cycle for every open position and market-closes it
+  /// when this returns true. Bracket-only strategies keep the default
+  /// (false) and rely on their SL/TP orders.
+  bool shouldExit({required SignalSide side, required List<Candle> ltf}) =>
+      false;
 }

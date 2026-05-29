@@ -5,7 +5,6 @@ import 'data/api/binance_ws.dart';
 import 'data/local/secure_credential_store.dart';
 import 'data/repositories/broker.dart';
 import 'data/repositories/journal_repository.dart';
-import 'data/repositories/paper_trading_repository.dart';
 import 'data/repositories/scan_history_repository.dart';
 import 'data/repositories/settings_repository.dart';
 import 'data/repositories/trading_repository.dart';
@@ -53,38 +52,15 @@ final binanceWsProvider = Provider<BinanceWs>((ref) {
   return ws;
 });
 
-/// Live broker — talks to Binance via REST.
-final liveTradingRepoProvider = Provider<TradingRepository>((ref) {
+/// The app's broker — live Binance via REST. (Paper mode was removed when
+/// the app was stripped to the single strategy.) Exposed as [Broker] so
+/// every consumer depends on the interface, not the concrete class.
+final tradingRepoProvider = Provider<Broker>((ref) {
   return TradingRepository(ref.watch(binanceApiProvider));
 });
 
-/// Paper broker — in-memory positions resolved against WebSocket marks.
-/// Wraps the live repo for read-only public data (symbol rules, mark price
-/// fallback) so paper-mode setup matches what live would do.
-final paperTradingRepoProvider = Provider<PaperTradingRepository>((ref) {
-  final repo = PaperTradingRepository(
-    live: ref.watch(liveTradingRepoProvider),
-    ws: ref.watch(binanceWsProvider),
-    settings: ref.watch(settingsRepoProvider),
-  );
-  ref.onDispose(repo.dispose);
-  return repo;
-});
-
-/// Mode-aware broker selected by the user's `tradingMode` setting. Every
-/// consumer (TradeScreen, AutoTrader, PositionsScreen, JournalController,
-/// auto-trade engine) depends on this so flipping the mode in Settings
-/// transparently re-routes every order placement.
-final tradingRepoProvider = Provider<Broker>((ref) {
-  final mode = ref.watch(settingsProvider).valueOrNull?.tradingMode ??
-      TradingMode.live;
-  return mode == TradingMode.paper
-      ? ref.watch(paperTradingRepoProvider)
-      : ref.watch(liveTradingRepoProvider);
-});
-
 final strategyProvider = Provider<TradingStrategy>((ref) {
-  final id = ref.watch(settingsProvider).valueOrNull?.strategyId ?? 'trend_rmacd';
+  final id = ref.watch(settingsProvider).valueOrNull?.strategyId ?? 'ema_stack';
   return StrategyRegistry.fromId(id);
 });
 

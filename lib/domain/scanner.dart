@@ -62,16 +62,10 @@ class MarketScanner {
         .toList()
       ..sort((a, b) => b.quoteVolume.compareTo(a.quoteVolume));
 
-    final watchSymbols = settings.watchlist
-        .where((w) => filtered.any((t) => t.symbol == w))
+    final picked = filtered
+        .map((t) => t.symbol as String)
+        .take(settings.scanLimit)
         .toList();
-    final picked = <String>{
-      ...watchSymbols,
-      ...filtered
-          .map((t) => t.symbol as String)
-          .where((s) => !watchSymbols.contains(s))
-          .take((settings.scanLimit - watchSymbols.length).clamp(0, settings.scanLimit)),
-    }.toList();
     if (picked.isEmpty) return const [];
 
     final htf = Timeframe.fromCode(settings.htfTimeframe);
@@ -127,6 +121,20 @@ class MarketScanner {
       Timeframe.fromCode(settings.mtfTimeframe),
       Timeframe.fromCode(settings.ltfTimeframe),
     );
+  }
+
+  /// Dynamic-exit check for an open [side] position in [symbol]. Fetches
+  /// the strategy's LTF candles (dropping the still-forming bar) and asks
+  /// the strategy whether its exit condition (e.g. EMA cross-back) has
+  /// triggered. Used by the scan pipeline to close trend-follower trades
+  /// that exit on an indicator rather than fixed take-profits.
+  Future<bool> shouldExit(
+      String symbol, SignalSide side, AppSettings settings) async {
+    final ltf = Timeframe.fromCode(settings.ltfTimeframe);
+    final candles = await _api.getCandles(symbol, ltf, limit: 300);
+    if (candles.isEmpty) return false;
+    final closed = candles.sublist(0, candles.length - 1);
+    return _strategy.shouldExit(side: side, ltf: closed);
   }
 
   Future<Signal?> _evaluateOne(String symbol, Timeframe htf, Timeframe mtf, Timeframe ltf) async {

@@ -4,8 +4,8 @@ import 'strategy.dart';
 /// Pure helpers for positioning stop-loss / take-profit brackets.
 ///
 /// Lives apart from the broker so the math is unit-testable without a
-/// network or a Binance account. Both [TradingRepository] and
-/// [PaperTradingRepository] route their SL/TP placement through these.
+/// network or a Binance account. [TradingRepository] routes its SL/TP
+/// placement through these.
 class BracketMath {
   BracketMath._();
 

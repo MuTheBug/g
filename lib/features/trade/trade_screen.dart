@@ -88,10 +88,13 @@ class _TradeScreenState extends ConsumerState<TradeScreen> {
         _autoAttach = settings.autoAttachSlTp;
         _margin = (account.availableBalance * 0.05).clamp(0, account.availableBalance);
         _marginCtrl.text = _margin.toStringAsFixed(2);
-        _slCtrl.text = (signal?.plan.stopLoss ?? 0).toStringAsFixed(6);
-        _tp1Ctrl.text = (signal?.plan.takeProfit1 ?? 0).toStringAsFixed(6);
-        _tp2Ctrl.text = (signal?.plan.takeProfit2 ?? 0).toStringAsFixed(6);
-        _tp3Ctrl.text = (signal?.plan.takeProfit3 ?? 0).toStringAsFixed(6);
+        // The strategy may emit no fixed targets (0) — it exits on the EMA
+        // cross instead. Leave those fields blank rather than showing 0.
+        String px(double? v) => (v == null || v <= 0) ? '' : v.toStringAsFixed(6);
+        _slCtrl.text = px(signal?.plan.stopLoss);
+        _tp1Ctrl.text = px(signal?.plan.takeProfit1);
+        _tp2Ctrl.text = px(signal?.plan.takeProfit2);
+        _tp3Ctrl.text = px(signal?.plan.takeProfit3);
         _loading = false;
       });
     } catch (e) {
@@ -196,7 +199,6 @@ class _TradeScreenState extends ConsumerState<TradeScreen> {
       // Record in the journal so the user can review wins / losses later.
       try {
         final filledPx = r.entry.avgPrice == 0 ? r.entry.price : r.entry.avgPrice;
-        final settings = await ref.read(settingsRepoProvider).load();
         final jTps = r.effectiveTakeProfits;
         await ref.read(journalRepoProvider).add(JournalEntry(
               id: 'manual-${DateTime.now().microsecondsSinceEpoch}-${widget.symbol}',
@@ -213,7 +215,7 @@ class _TradeScreenState extends ConsumerState<TradeScreen> {
               takeProfit3: jTps.length > 2 ? jTps[2] : _effectiveTp3,
               confidence: _signal?.confidence ?? 0,
               autoTraded: false,
-              paper: settings.tradingMode == TradingMode.paper,
+              paper: false,
             ));
       } catch (_) {/* journal is best-effort */}
       setState(() {

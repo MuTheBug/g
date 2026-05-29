@@ -1,10 +1,7 @@
 import 'package:flutter/foundation.dart';
 
-import '../data/api/binance_api.dart';
-import '../data/models/equity_snapshot.dart';
 import '../data/models/scan_record.dart';
 import '../data/repositories/broker.dart';
-import '../data/repositories/equity_snapshot_repository.dart';
 import '../data/repositories/journal_repository.dart';
 import '../data/repositories/scan_history_repository.dart';
 import '../data/repositories/settings_repository.dart';
@@ -110,6 +107,26 @@ class ScanPipeline {
         }
       }
 
+      // Strategy dynamic-exit pass — close any open position whose
+      // strategy exit condition (EMA cross-back) has triggered. Runs
+      // BEFORE close-detection so the resulting closes are picked up and
+      // notified in the same cycle. Each close cancels the catastrophic
+      // SL bracket first, then market-closes.
+      try {
+        final exited = await _runStrategyExits(settings);
+        for (final sym in exited) {
+          final w = report?.warnings.toList(growable: true) ?? <String>[];
+          w.add('$sym: closed on strategy exit (EMA cross-back)');
+          report = AutoTradeReport(
+            placed: report?.placed ?? const [],
+            skipped: report?.skipped ?? const [],
+            warnings: w,
+          );
+        }
+      } catch (e) {
+        if (kDebugMode) debugPrint('strategy-exit pass: $e');
+      }
+
       // Close-detection pass — find journal entries whose symbol is no
       // longer in open positions and fire a notification for each. Runs
       // BEFORE the stop ratchet so we don't try to move SL on a closed
@@ -198,31 +215,45 @@ class ScanPipeline {
 
     await _history.add(record);
 
-    // Equity snapshot at the end of every scan — cheap (one extra read
-    // against the broker + one INSERT) and gives the dashboard a regular
-    // cadence of points to chart. Failures don't block the scan record.
-    if (error == null) {
-      try {
-        final acct = await _broker.getAccount();
-        final positions = await _broker.getOpenPositions();
-        await EquitySnapshotRepository.instance.add(EquitySnapshot(
-          takenAt: finishedAt,
-          walletBalance: acct.totalWalletBalance,
-          unrealizedPnl: acct.totalUnrealizedProfit,
-          marginBalance: acct.totalMarginBalance,
-          openPositions: positions.length,
-          paper: settings.tradingMode == TradingMode.paper,
-        ));
-      } catch (e) {
-        if (kDebugMode) debugPrint('equity snapshot failed: $e');
-      }
-    }
-
     if (notify) {
       await _sendNotifications(record);
     }
 
     return ScanPipelineResult(record: record, signals: signals);
+  }
+
+  /// Closes every open position whose strategy exit has triggered.
+  /// Returns the symbols closed. Each close cancels outstanding orders
+  /// (the catastrophic SL) first so no orphan stop lingers.
+  Future<List<String>> _runStrategyExits(AppSettings settings) async {
+    final closed = <String>[];
+    final positions = await _broker.getOpenPositions(force: true);
+    for (final p in positions) {
+      if (p.positionAmt == 0) continue;
+      final side = p.isLong ? SignalSide.long : SignalSide.short;
+      bool exit;
+      try {
+        exit = await _scanner.shouldExit(p.symbol, side, settings);
+      } catch (_) {
+        continue; // candle fetch failed — leave the position alone
+      }
+      if (!exit) continue;
+      final rules = await _broker.getSymbolRules(p.symbol);
+      if (rules == null) continue;
+      try {
+        await _broker.cancelAll(p.symbol);
+        await _broker.closePosition(
+          symbol: p.symbol,
+          side: side,
+          quantity: p.positionAmt.abs(),
+          rules: rules,
+        );
+        closed.add(p.symbol);
+      } catch (e) {
+        if (kDebugMode) debugPrint('strategy exit close ${p.symbol}: $e');
+      }
+    }
+    return closed;
   }
 
   Future<void> _sendNotifications(ScanRecord r) async {

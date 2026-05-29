@@ -107,18 +107,27 @@ class _SignalDetailScreenState extends ConsumerState<SignalDetailScreen> {
                     label: 'Stop loss',
                     value: s.plan.stopLoss.toStringAsFixed(6),
                     valueColor: ApexColors.bear),
-                KeyValueRow(
-                    label: 'TP1 (${s.plan.riskRewardR1}R)',
-                    value: s.plan.takeProfit1.toStringAsFixed(6),
-                    valueColor: ApexColors.bull),
-                KeyValueRow(
-                    label: 'TP2 (${s.plan.riskRewardR2}R)',
-                    value: s.plan.takeProfit2.toStringAsFixed(6),
-                    valueColor: ApexColors.bull),
-                KeyValueRow(
-                    label: 'TP3 (${s.plan.riskRewardR3}R)',
-                    value: s.plan.takeProfit3.toStringAsFixed(6),
-                    valueColor: ApexColors.bull),
+                // Trend strategies exit on an indicator (EMA cross), not
+                // fixed targets — they emit 0 TPs. Show that instead of 0.0.
+                if (s.plan.takeProfit1 <= 0 &&
+                    s.plan.takeProfit2 <= 0 &&
+                    s.plan.takeProfit3 <= 0)
+                  const KeyValueRow(
+                      label: 'Exit', value: 'EMA cross-back (no fixed TP)')
+                else ...[
+                  KeyValueRow(
+                      label: 'TP1 (${s.plan.riskRewardR1}R)',
+                      value: s.plan.takeProfit1.toStringAsFixed(6),
+                      valueColor: ApexColors.bull),
+                  KeyValueRow(
+                      label: 'TP2 (${s.plan.riskRewardR2}R)',
+                      value: s.plan.takeProfit2.toStringAsFixed(6),
+                      valueColor: ApexColors.bull),
+                  KeyValueRow(
+                      label: 'TP3 (${s.plan.riskRewardR3}R)',
+                      value: s.plan.takeProfit3.toStringAsFixed(6),
+                      valueColor: ApexColors.bull),
+                ],
                 KeyValueRow(label: 'ATR', value: s.plan.atr.toStringAsFixed(6)),
                 KeyValueRow(label: 'ADX', value: s.adx.toStringAsFixed(1)),
                 KeyValueRow(label: 'RSI', value: s.rsi.toStringAsFixed(1)),
