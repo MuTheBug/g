@@ -1,0 +1,138 @@
+//@version=5
+// =============================================================================
+// Trend RSI-MACD — 5-minute build
+// Port of lib/domain/trend_rsi_macd_strategy.dart, retuned for 5m.
+//
+//   Trend filter : SMA(200) on close + slope. On 5m, SMA200 ≈ a 16.7h
+//                  intraday anchor. Long only above a RISING SMA200, short
+//                  only below a FALLING one. Optional 1h SMA200 gate on top.
+//   Trigger      : MACD whose SOURCE is RSI(14), not price:
+//                    rmacd  = EMA(RSI,12) - EMA(RSI,26)
+//                    signal = EMA(rmacd,9)
+//                  Long = rmacd crosses ABOVE signal; short = crosses BELOW.
+//   Risk         : SL = slMult × ATR(14); TP1/2/3 at 1R/2R/3R.
+//
+// WHY THE 5m DEFAULTS DIFFER FROM 4h
+// ----------------------------------
+// Round-trip taker fee is ~0.08% of notional, fixed. On 5m the ATR is ~3.5×
+// smaller in % than on 1h, so a 1.5×ATR stop is tiny and fees eat 0.15–0.29 R
+// PER TRADE vs a gross edge of ~0.09 R — i.e. it loses. The cure is a WIDER
+// stop so each R is large enough that the fixed fee is a small fraction of it:
+//     slMult 1.5 → 4.0,  + a min-ATR% filter,  + an optional 1h trend gate.
+// This makes 5m a "5m entry timing on ~1h-scale moves" system.
+//
+//   4h preset (the originally-validated config): slMult=1.5, slopeLen=5,
+//   minAtrPct=0, useHtf=false. Switch back via the inputs to compare.
+//
+// Run this ON A 5m CHART. SMA200@5m needs ~17h of history before the first
+// signal, so load plenty of bars. Numbers won't reconcile to the decimal with
+// the app (EMA seeding / fill / fee models differ) — use the Strategy Tester
+// for the verdict and tune slMult there.
+// =============================================================================
+strategy("Trend RSI-MACD (5m)",
+     overlay            = true,
+     initial_capital    = 10000,
+     pyramiding         = 0,
+     commission_type    = strategy.commission.percent,
+     commission_value   = 0.04,     // Binance USDT-M taker; raise to 0.05 to be harsh
+     slippage           = 1,
+     calc_on_every_tick = false)
+
+// ---- inputs ----------------------------------------------------------------
+gT = "Indicators"
+smaLen   = input.int(200, "SMA trend length",   group=gT, minval=2)
+slopeLen = input.int(12,  "SMA slope lookback", group=gT, minval=1)   // 4h preset: 5
+rsiLen   = input.int(14,  "RSI length",         group=gT, minval=2)
+fastLen  = input.int(12,  "RSI-MACD fast",      group=gT, minval=1)
+slowLen  = input.int(26,  "RSI-MACD slow",      group=gT, minval=2)
+sigLen   = input.int(9,   "RSI-MACD signal",    group=gT, minval=1)
+atrLen   = input.int(14,  "ATR length",         group=gT, minval=1)
+
+gF = "5m filters"
+minAtrPct = input.float(0.12, "Min ATR % of price (skip chop)", group=gF, minval=0.0, step=0.01)
+useHtf    = input.bool(true,  "Require higher-TF trend agreement", group=gF)
+htfTf     = input.timeframe("60", "Higher-TF for the trend gate", group=gF)
+
+gR = "Risk / targets"
+slMult   = input.float(4.0, "Stop = ATR ×", group=gR, minval=0.1, step=0.1)   // 4h preset: 1.5
+tp1R     = input.float(1.0, "TP1 (R)",      group=gR, minval=0.1, step=0.1)
+tp2R     = input.float(2.0, "TP2 (R)",      group=gR, minval=0.1, step=0.1)
+tp3R     = input.float(3.0, "TP3 (R)",      group=gR, minval=0.1, step=0.1)
+scaleOut = input.bool(false, "Scale out 33/33/34% at TP1/TP2/TP3", group=gR)
+riskPct  = input.float(1.0, "Risk % of equity per trade", group=gR, minval=0.1, step=0.1)
+
+gD = "Direction & dates"
+allowLong  = input.bool(true,  "Allow longs",          group=gD)
+allowShort = input.bool(true,  "Allow shorts",         group=gD)
+useDates   = input.bool(false, "Filter by date range", group=gD)
+startDate  = input.time(timestamp("2024-01-01T00:00:00"), "Start", group=gD)
+endDate    = input.time(timestamp("2026-12-31T00:00:00"), "End",   group=gD)
+
+// ---- indicators ------------------------------------------------------------
+sma200  = ta.sma(close, smaLen)
+rsiv    = ta.rsi(close, rsiLen)
+rmacd   = ta.ema(rsiv, fastLen) - ta.ema(rsiv, slowLen)   // MACD sourced from RSI
+rsignal = ta.ema(rmacd, sigLen)
+atrv    = ta.atr(atrLen)
+
+risingSma  = sma200 > sma200[slopeLen]
+fallingSma = sma200 < sma200[slopeLen]
+bull = ta.crossover(rmacd, rsignal)
+bear = ta.crossunder(rmacd, rsignal)
+
+// higher-TF trend gate (non-repainting: confirmed HTF SMA200)
+htfSma = request.security(syminfo.tickerid, htfTf, ta.sma(close, smaLen), lookahead = barmerge.lookahead_off)
+htfLongOk  = not useHtf or (not na(htfSma) and close > htfSma)
+htfShortOk = not useHtf or (not na(htfSma) and close < htfSma)
+
+// noise / fee filter
+atrPct = atrv / close * 100.0
+volOk  = atrPct >= minAtrPct
+
+inRange = not useDates or (time >= startDate and time <= endDate)
+ready   = not na(sma200) and not na(sma200[slopeLen]) and not na(rsignal) and not na(atrv) and atrv > 0
+
+longSig  = bull and close > sma200 and risingSma  and volOk and htfLongOk
+shortSig = bear and close < sma200 and fallingSma and volOk and htfShortOk
+
+// ---- entries (only when flat) ---------------------------------------------
+flat = strategy.position_size == 0
+var float rDist  = na   // 1R = SL distance in price, frozen at entry
+var float posQty = na
+
+if longSig and flat and allowLong and inRange and ready
+    rDist  := slMult * atrv
+    posQty := (strategy.equity * riskPct / 100.0) / rDist
+    strategy.entry("Long", strategy.long, qty = posQty)
+
+if shortSig and flat and allowShort and inRange and ready
+    rDist  := slMult * atrv
+    posQty := (strategy.equity * riskPct / 100.0) / rDist
+    strategy.entry("Short", strategy.short, qty = posQty)
+
+// ---- exits (SL shared by every tranche) ------------------------------------
+if strategy.position_size > 0 and not na(rDist)
+    avg = strategy.position_avg_price
+    sl  = avg - rDist
+    if scaleOut
+        strategy.exit("L1", "Long", qty = posQty * 0.33, stop = sl, limit = avg + tp1R * rDist)
+        strategy.exit("L2", "Long", qty = posQty * 0.33, stop = sl, limit = avg + tp2R * rDist)
+        strategy.exit("L3", "Long", qty = posQty * 0.34, stop = sl, limit = avg + tp3R * rDist)
+    else
+        strategy.exit("L",  "Long", stop = sl, limit = avg + tp1R * rDist)
+
+if strategy.position_size < 0 and not na(rDist)
+    avg = strategy.position_avg_price
+    sl  = avg + rDist
+    if scaleOut
+        strategy.exit("S1", "Short", qty = posQty * 0.33, stop = sl, limit = avg - tp1R * rDist)
+        strategy.exit("S2", "Short", qty = posQty * 0.33, stop = sl, limit = avg - tp2R * rDist)
+        strategy.exit("S3", "Short", qty = posQty * 0.34, stop = sl, limit = avg - tp3R * rDist)
+    else
+        strategy.exit("S",  "Short", stop = sl, limit = avg - tp1R * rDist)
+
+// ---- plots -----------------------------------------------------------------
+plot(sma200, "SMA200", color = risingSma ? color.teal : (fallingSma ? color.red : color.gray), linewidth = 2)
+plot(useHtf ? htfSma : na, "HTF SMA200", color = color.new(color.orange, 0), linewidth = 1)
+plotshape(longSig  and flat, "Long",  shape.triangleup,   location.belowbar, color.teal, size = size.tiny)
+plotshape(shortSig and flat, "Short", shape.triangledown, location.abovebar, color.red,  size = size.tiny)
