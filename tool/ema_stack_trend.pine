@@ -1,0 +1,115 @@
+//@version=5
+// =============================================================================
+// EMA Stack Trend — the app's single strategy
+// Port of lib/domain/ema_stack_strategy.dart (validated in
+// tool/backtest_ema_stack_v2.py). Run this ON A DAILY (1D) CHART.
+//
+//   Entry  : EMA8 > EMA21 > EMA50 (bull stack) — mirror for shorts —
+//            AND EMA8 has stayed above EMA21 for >= 5 consecutive bars
+//            (persistence; kills fake-out crosses)
+//            AND ADX(14) > 30 (skip ranging markets).
+//   Stop   : catastrophic 3 x ATR(14) from the fill (safety net only).
+//   Exit   : EMA8 crosses back through EMA21 (the PRIMARY exit — there
+//            are NO fixed take-profits). Long exits when EMA8 < EMA21;
+//            short when EMA8 > EMA21.
+//   Side   : long + short.
+//
+// Sizing: 100% of equity per trade, compounding, no leverage — this
+// matches how the backtester measures returns (% move per trade). Add
+// leverage at your own risk; drawdowns are large (see below).
+//
+// Validation (held-out walk-forward, daily, 10 majors):
+//   median PF 1.96, +31% avg, 16% DD, 9/10 symbols profitable.
+//   Full 4yr sample (186 trades): median PF 2.31, +78% avg, 9/10 green.
+//
+// HONEST CAVEATS (same as the app):
+//   - DAILY only. The same rules LOSE out-of-sample on 1h/2h/4h. Do not
+//     put this on a fast chart expecting it to work.
+//   - Per-symbol drawdowns run 40-62%. Unleveraged or very low leverage.
+//   - Low win rate (~33%); a few big winners pay for many small losers.
+//   - TradingView's EMA/ADX seeding + fill model differ slightly from the
+//     app's, so numbers are the same ballpark, not identical.
+// =============================================================================
+strategy("EMA Stack Trend",
+     overlay            = true,
+     initial_capital    = 10000,
+     default_qty_type   = strategy.percent_of_equity,
+     default_qty_value  = 100,
+     pyramiding         = 0,
+     commission_type    = strategy.commission.percent,
+     commission_value   = 0.04,   // Binance USDT-M taker; 0.05 to be harsh
+     slippage           = 1,
+     calc_on_every_tick = false)
+
+// ---- inputs ----------------------------------------------------------------
+gI = "Strategy"
+fastLen     = input.int(8,   "EMA fast",            group=gI, minval=1)
+medLen      = input.int(21,  "EMA medium",          group=gI, minval=2)
+slowLen     = input.int(50,  "EMA slow",            group=gI, minval=3)
+persistBars = input.int(5,   "Persistence bars",    group=gI, minval=1)
+adxLen      = input.int(14,  "ADX length",          group=gI, minval=2)
+adxMin      = input.float(30,"ADX minimum",         group=gI, minval=0, step=1)
+atrLen      = input.int(14,  "ATR length",          group=gI, minval=1)
+catStopAtr  = input.float(3.0,"Catastrophic stop xATR", group=gI, minval=0.5, step=0.5)
+
+gD = "Direction & dates"
+allowLong  = input.bool(true,  "Allow longs",          group=gD)
+allowShort = input.bool(true,  "Allow shorts",         group=gD)
+useDates   = input.bool(false, "Filter by date range", group=gD)
+startDate  = input.time(timestamp("2022-01-01T00:00:00"), "Start", group=gD)
+endDate    = input.time(timestamp("2026-12-31T00:00:00"), "End",   group=gD)
+
+// ---- indicators ------------------------------------------------------------
+ema8  = ta.ema(close, fastLen)
+ema21 = ta.ema(close, medLen)
+ema50 = ta.ema(close, slowLen)
+[_diPlus, _diMinus, adxv] = ta.dmi(adxLen, adxLen)
+atrv  = ta.atr(atrLen)
+
+bull = ema8 > ema21 and ema21 > ema50
+bear = ema8 < ema21 and ema21 < ema50
+
+// Persistence: bars since EMA8 was last NOT on the right side of EMA21.
+// >= persistBars means it has held for that many consecutive bars.
+sinceBelow = ta.barssince(ema8 <= ema21)
+sinceAbove = ta.barssince(ema8 >= ema21)
+longPersist  = not na(sinceBelow) and sinceBelow >= persistBars
+shortPersist = not na(sinceAbove) and sinceAbove >= persistBars
+
+inRange = not useDates or (time >= startDate and time <= endDate)
+ready   = not na(ema50) and not na(adxv) and not na(atrv) and atrv > 0
+
+longEntry  = allowLong  and bull and longPersist  and adxv > adxMin
+shortEntry = allowShort and bear and shortPersist and adxv > adxMin
+
+// ---- entries (only when flat) ---------------------------------------------
+flat = strategy.position_size == 0
+var float rDist = na   // catastrophic stop distance, frozen at entry
+
+if longEntry and flat and inRange and ready
+    rDist := catStopAtr * atrv
+    strategy.entry("Long", strategy.long)
+
+if shortEntry and flat and inRange and ready
+    rDist := catStopAtr * atrv
+    strategy.entry("Short", strategy.short)
+
+// ---- exits: EMA cross-back (primary) + catastrophic stop (safety net) ------
+if strategy.position_size > 0 and not na(rDist)
+    strategy.exit("L-catSL", from_entry = "Long",
+         stop = strategy.position_avg_price - rDist)
+    if ema8 < ema21
+        strategy.close("Long", comment = "EMA cross")
+
+if strategy.position_size < 0 and not na(rDist)
+    strategy.exit("S-catSL", from_entry = "Short",
+         stop = strategy.position_avg_price + rDist)
+    if ema8 > ema21
+        strategy.close("Short", comment = "EMA cross")
+
+// ---- plots -----------------------------------------------------------------
+plot(ema8,  "EMA8",  color = color.new(color.aqua, 0))
+plot(ema21, "EMA21", color = color.new(color.orange, 0))
+plot(ema50, "EMA50", color = color.new(color.gray, 0), linewidth = 2)
+plotshape(longEntry  and flat, "Long",  shape.triangleup,   location.belowbar, color.teal, size = size.tiny)
+plotshape(shortEntry and flat, "Short", shape.triangledown, location.abovebar, color.red,  size = size.tiny)
