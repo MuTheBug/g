@@ -24,18 +24,32 @@ class AutoTradeReport {
 ///   - Auto-trade enabled in settings.
 ///   - Signal confidence >= autoTradeMinConfidence.
 ///   - Currently open positions on the symbol = 0 (don't pyramid).
-///   - Total open positions < autoTradeMaxOpenPositions (default 10).
+///   - Total open positions < the equity-aware slot cap (see [allowedSlots]).
 ///   - Enough free margin for the sized position.
 ///
 /// Sizing is risk-based by default: each trade risks autoTradeRiskPct % of
-/// equity (qty = risk / stop-distance), the breadth-validated approach that
-/// keeps portfolio drawdown to ~13-32% across the top-50 crypto universe.
-/// Bracket SL/TP are attached only when the user has the global
-/// `autoAttachSlTp` setting on.
+/// equity (qty = risk / stop-distance). When more signals fire on the same
+/// scan than there are free slots, the strongest-trend candidates (highest
+/// ADX) win — that's the breadth-validated selection rule.
 class AutoTrader {
   AutoTrader(this._trading, this._journal);
   final Broker _trading;
   final JournalRepository _journal;
+
+  /// Cap the number of concurrent positions by [equity]. When
+  /// [AppSettings.slotRampEnabled] is on, fewer slots are allowed while
+  /// the account is small relative to the per-position margin — so a $50
+  /// account doesn't open 5 positions and risk 100% in margin at once.
+  /// Validated in tool/backtest_portfolio_iter.py: this cut max drawdown
+  /// from 73% to 58% with the same final return.
+  static int allowedSlots(double equity, AppSettings s) {
+    final cap = s.autoTradeMaxOpenPositions;
+    if (!s.slotRampEnabled || s.autoTradeMarginUsdt <= 0) return cap;
+    final m = s.autoTradeMarginUsdt;
+    if (equity < 8 * m) return cap < 2 ? cap : 2;
+    if (equity < 15 * m) return cap < 3 ? cap : 3;
+    return cap;
+  }
 
   Future<AutoTradeReport> processSignals(
     List<Signal> ranked,
@@ -64,7 +78,15 @@ class AutoTrader {
           }).toList();
 
     final candidates =
-        gated.where((s) => s.confidence >= settings.autoTradeMinConfidence).toList();
+        gated.where((s) => s.confidence >= settings.autoTradeMinConfidence).toList()
+          // When more signals fire than there are free slots, take the
+          // strongest-trend ones first (validated: variant F in the
+          // portfolio iteration). Confidence ties broken by symbol.
+          ..sort((a, b) {
+            final byAdx = b.adx.compareTo(a.adx);
+            if (byAdx != 0) return byAdx;
+            return a.symbol.compareTo(b.symbol);
+          });
     if (candidates.isEmpty) {
       return AutoTradeReport(placed: placed, skipped: skipped, warnings: warnings);
     }
@@ -92,8 +114,9 @@ class AutoTrader {
 
     int currentOpen = openSymbols.length;
     for (final sig in candidates) {
-      if (currentOpen >= settings.autoTradeMaxOpenPositions) {
-        skipped.add('${sig.symbol}: max open positions (${settings.autoTradeMaxOpenPositions}) reached');
+      final cap = allowedSlots(equity, settings);
+      if (currentOpen >= cap) {
+        skipped.add('${sig.symbol}: slot cap ($cap, equity \$${equity.toStringAsFixed(0)}) reached');
         break;
       }
       if (openSymbols.contains(sig.symbol)) {

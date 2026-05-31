@@ -353,6 +353,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   onChanged: (v) => notifier.update(
                       (st) => st.copyWith(autoTradeMaxOpenPositions: v.round())),
                 ),
+                Row(children: [
+                  const Expanded(
+                      child: Text('Equity-aware slot cap (ramp small accounts)')),
+                  Switch(
+                    value: s.slotRampEnabled,
+                    onChanged: (v) =>
+                        notifier.update((st) => st.copyWith(slotRampEnabled: v)),
+                  ),
+                ]),
+                if (s.slotRampEnabled)
+                  const Text(
+                    'Caps to 2 concurrent until equity > 8x margin, 3 until '
+                    '15x margin, then your max. Cut max DD from 73% → 58% in '
+                    'the \$50 / \$10 / 5x portfolio backtest.',
+                    style: TextStyle(
+                        color: ApexColors.textMuted, fontSize: 11.5),
+                  ),
                 Text(
                     'Min auto-trade confidence: ${s.autoTradeMinConfidence}%',
                     style: const TextStyle(color: ApexColors.textMuted)),

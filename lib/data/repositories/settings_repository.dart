@@ -26,6 +26,11 @@ class AppSettings {
     this.autoTradeMarginUsdt = 10,
     this.riskBasedSizing = true,
     this.autoTradeRiskPct = 1.0,
+    // Equity-aware position cap (variant I from the portfolio backtest):
+    // start with fewer slots when the account is small relative to the
+    // per-trade margin, then ramp up. Cut max drawdown from 73% to 58%
+    // in the $50 / $10 / 5x test without giving up returns.
+    this.slotRampEnabled = true,
     this.autoTradeMinConfidence = 80,
     this.validatedSymbols = const <String>{},
     this.validatedSymbolsEnabled = false,
@@ -64,6 +69,13 @@ class AppSettings {
   /// Percent of equity risked per trade when [riskBasedSizing] is on.
   final double autoTradeRiskPct;
 
+  /// When true, [AutoTrader] caps the number of concurrent positions
+  /// based on equity (2 slots until equity > 8 * margin, 3 until
+  /// 15 * margin, then [autoTradeMaxOpenPositions]). Stops a small
+  /// account being over-leveraged in its first losing streak. See
+  /// tool/backtest_portfolio_iter.py.
+  final bool slotRampEnabled;
+
   final int autoTradeMinConfidence;
 
   // Optional manual whitelist. When [validatedSymbolsEnabled] is true and
@@ -99,6 +111,7 @@ class AppSettings {
     double? autoTradeMarginUsdt,
     bool? riskBasedSizing,
     double? autoTradeRiskPct,
+    bool? slotRampEnabled,
     int? autoTradeMinConfidence,
     Set<String>? validatedSymbols,
     bool? validatedSymbolsEnabled,
@@ -125,6 +138,7 @@ class AppSettings {
         autoTradeMarginUsdt: autoTradeMarginUsdt ?? this.autoTradeMarginUsdt,
         riskBasedSizing: riskBasedSizing ?? this.riskBasedSizing,
         autoTradeRiskPct: autoTradeRiskPct ?? this.autoTradeRiskPct,
+        slotRampEnabled: slotRampEnabled ?? this.slotRampEnabled,
         autoTradeMinConfidence: autoTradeMinConfidence ?? this.autoTradeMinConfidence,
         validatedSymbols: validatedSymbols ?? this.validatedSymbols,
         validatedSymbolsEnabled:
@@ -157,6 +171,7 @@ class SettingsRepository {
   static const _kAtMargin = 'autoTradeMarginUsdt';
   static const _kAtRiskBased = 'riskBasedSizing';
   static const _kAtRiskPct = 'autoTradeRiskPct';
+  static const _kAtSlotRamp = 'slotRampEnabled';
   static const _kAtMinConf = 'autoTradeMinConfidence';
   static const _kValidated = 'validatedSymbols';
   static const _kValidatedOn = 'validatedSymbolsEnabled';
@@ -188,6 +203,7 @@ class SettingsRepository {
         autoTradeMarginUsdt: p.getDouble(_kAtMargin) ?? 10,
         riskBasedSizing: p.getBool(_kAtRiskBased) ?? true,
         autoTradeRiskPct: p.getDouble(_kAtRiskPct) ?? 1.0,
+        slotRampEnabled: p.getBool(_kAtSlotRamp) ?? true,
         autoTradeMinConfidence: p.getInt(_kAtMinConf) ?? 80,
         validatedSymbols: (p.getStringList(_kValidated) ?? const <String>[])
             .toSet(),
@@ -226,6 +242,7 @@ class SettingsRepository {
         p.setDouble(_kAtMargin, s.autoTradeMarginUsdt),
         p.setBool(_kAtRiskBased, s.riskBasedSizing),
         p.setDouble(_kAtRiskPct, s.autoTradeRiskPct),
+        p.setBool(_kAtSlotRamp, s.slotRampEnabled),
         p.setInt(_kAtMinConf, s.autoTradeMinConfidence),
         p.setStringList(_kValidated, s.validatedSymbols.toList()),
         p.setBool(_kValidatedOn, s.validatedSymbolsEnabled),
