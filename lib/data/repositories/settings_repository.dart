@@ -1,47 +1,35 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// Persistent app settings — slimmed to ONLY the fields that apply to the
+/// single shipped strategy (EMA Stack Trend, daily). Removed: TF pickers
+/// (the strategy is hardcoded daily — exposing TFs caused stale saved
+/// values to silently override the new defaults), strategy id (one
+/// strategy), scanner/auto-trade min-confidence (every EMA-stack signal
+/// scores 100), validated-symbols whitelist (sweep feature is gone), and
+/// the TP-based SL ratchet (this strategy has no fixed TPs).
 class AppSettings {
   const AppSettings({
-    // Top-50 crypto universe drives the breadth plan (the scanner filters
-    // out tokenized stocks/commodities, so this is ~50 real coins).
     this.scanLimit = 50,
-    this.minConfidence = 70,
     this.defaultLeverage = 5,
     this.isolatedMargin = true,
     this.autoAttachSlTp = true,
     this.backgroundScanEnabled = false,
-    this.backgroundScanIntervalMin = 15,
+    // Daily strategy: re-scanning every 60 min is plenty (the bars only
+    // close once a day).
+    this.backgroundScanIntervalMin = 60,
     this.excludedSymbols = const <String>{},
     this.biometricLockEnabled = true,
-    // EMA Stack Trend is a daily strategy and only reads the LTF series;
-    // all three default to the daily.
-    this.htfTimeframe = '1d',
-    this.mtfTimeframe = '1d',
-    this.ltfTimeframe = '1d',
     this.autoTradeEnabled = false,
-    // Breadth-validated guardrails: spread across ~10 names, risk a small
-    // % of equity per trade (qty = risk / stop-distance). This is what
-    // turned the single-symbol 40-60% drawdowns into a ~13-32% portfolio DD.
     this.autoTradeMaxOpenPositions = 10,
+    // Used for fixed-margin sizing AND as the unit for the slot ramp
+    // thresholds (8 x / 15 x margin).
     this.autoTradeMarginUsdt = 10,
     this.riskBasedSizing = true,
     this.autoTradeRiskPct = 1.0,
-    // Equity-aware position cap (variant I from the portfolio backtest):
-    // start with fewer slots when the account is small relative to the
-    // per-trade margin, then ramp up. Cut max drawdown from 73% to 58%
-    // in the $50 / $10 / 5x test without giving up returns.
     this.slotRampEnabled = true,
-    this.autoTradeMinConfidence = 80,
-    this.validatedSymbols = const <String>{},
-    this.validatedSymbolsEnabled = false,
-    this.lockInProfits = true,
-    this.moveToBeAfterTp1 = true,
-    this.moveToTp1AfterTp2 = true,
-    this.strategyId = 'ema_stack',
   });
 
   final int scanLimit;
-  final int minConfidence;
   final int defaultLeverage;
   final bool isolatedMargin;
   final bool autoAttachSlTp;
@@ -49,53 +37,26 @@ class AppSettings {
   final int backgroundScanIntervalMin;
   final Set<String> excludedSymbols;
   final bool biometricLockEnabled;
-  final String htfTimeframe;
-  final String mtfTimeframe;
-  final String ltfTimeframe;
 
-  // Auto-trade
   final bool autoTradeEnabled;
   final int autoTradeMaxOpenPositions;
 
-  /// Fixed margin per trade (USDT). Used only when [riskBasedSizing] is off,
-  /// or as a fallback when a signal has no stop to size against.
+  /// Fixed margin per trade (USDT). Used when [riskBasedSizing] is off,
+  /// and as the unit for the slot-ramp thresholds (8 x / 15 x).
   final double autoTradeMarginUsdt;
 
-  /// When true, size each trade so a stop-out loses [autoTradeRiskPct] % of
-  /// account equity: qty = (riskPct% * equity) / |entry - stopLoss|. This is
-  /// the breadth-validated sizing.
+  /// When true, size each trade so a stop-out loses [autoTradeRiskPct] %
+  /// of account equity: qty = (riskPct% * equity) / |entry - stopLoss|.
   final bool riskBasedSizing;
-
-  /// Percent of equity risked per trade when [riskBasedSizing] is on.
   final double autoTradeRiskPct;
 
-  /// When true, [AutoTrader] caps the number of concurrent positions
-  /// based on equity (2 slots until equity > 8 * margin, 3 until
-  /// 15 * margin, then [autoTradeMaxOpenPositions]). Stops a small
-  /// account being over-leveraged in its first losing streak. See
-  /// tool/backtest_portfolio_iter.py.
+  /// Equity-aware slot cap (variant I from the portfolio backtest):
+  /// 2 slots until equity > 8 x margin, 3 until 15 x margin, then the
+  /// user max. Stops a small account being over-leveraged early.
   final bool slotRampEnabled;
-
-  final int autoTradeMinConfidence;
-
-  // Optional manual whitelist. When [validatedSymbolsEnabled] is true and
-  // the set is non-empty, the scanner only considers these symbols.
-  final Set<String> validatedSymbols;
-  final bool validatedSymbolsEnabled;
-
-  /// Master toggle for the SL ratchet. When off, the stop-manager is a
-  /// no-op even if [moveToBeAfterTp1] / [moveToTp1AfterTp2] are on.
-  final bool lockInProfits;
-  final bool moveToBeAfterTp1;
-  final bool moveToTp1AfterTp2;
-
-  /// Strategy id. Only 'ema_stack' (EMA Stack Trend) is registered; see
-  /// [StrategyRegistry]. Default 'ema_stack'.
-  final String strategyId;
 
   AppSettings copyWith({
     int? scanLimit,
-    int? minConfidence,
     int? defaultLeverage,
     bool? isolatedMargin,
     bool? autoAttachSlTp,
@@ -103,50 +64,30 @@ class AppSettings {
     int? backgroundScanIntervalMin,
     Set<String>? excludedSymbols,
     bool? biometricLockEnabled,
-    String? htfTimeframe,
-    String? mtfTimeframe,
-    String? ltfTimeframe,
     bool? autoTradeEnabled,
     int? autoTradeMaxOpenPositions,
     double? autoTradeMarginUsdt,
     bool? riskBasedSizing,
     double? autoTradeRiskPct,
     bool? slotRampEnabled,
-    int? autoTradeMinConfidence,
-    Set<String>? validatedSymbols,
-    bool? validatedSymbolsEnabled,
-    bool? lockInProfits,
-    bool? moveToBeAfterTp1,
-    bool? moveToTp1AfterTp2,
-    String? strategyId,
   }) =>
       AppSettings(
         scanLimit: scanLimit ?? this.scanLimit,
-        minConfidence: minConfidence ?? this.minConfidence,
         defaultLeverage: defaultLeverage ?? this.defaultLeverage,
         isolatedMargin: isolatedMargin ?? this.isolatedMargin,
         autoAttachSlTp: autoAttachSlTp ?? this.autoAttachSlTp,
         backgroundScanEnabled: backgroundScanEnabled ?? this.backgroundScanEnabled,
-        backgroundScanIntervalMin: backgroundScanIntervalMin ?? this.backgroundScanIntervalMin,
+        backgroundScanIntervalMin:
+            backgroundScanIntervalMin ?? this.backgroundScanIntervalMin,
         excludedSymbols: excludedSymbols ?? this.excludedSymbols,
         biometricLockEnabled: biometricLockEnabled ?? this.biometricLockEnabled,
-        htfTimeframe: htfTimeframe ?? this.htfTimeframe,
-        mtfTimeframe: mtfTimeframe ?? this.mtfTimeframe,
-        ltfTimeframe: ltfTimeframe ?? this.ltfTimeframe,
         autoTradeEnabled: autoTradeEnabled ?? this.autoTradeEnabled,
-        autoTradeMaxOpenPositions: autoTradeMaxOpenPositions ?? this.autoTradeMaxOpenPositions,
+        autoTradeMaxOpenPositions:
+            autoTradeMaxOpenPositions ?? this.autoTradeMaxOpenPositions,
         autoTradeMarginUsdt: autoTradeMarginUsdt ?? this.autoTradeMarginUsdt,
         riskBasedSizing: riskBasedSizing ?? this.riskBasedSizing,
         autoTradeRiskPct: autoTradeRiskPct ?? this.autoTradeRiskPct,
         slotRampEnabled: slotRampEnabled ?? this.slotRampEnabled,
-        autoTradeMinConfidence: autoTradeMinConfidence ?? this.autoTradeMinConfidence,
-        validatedSymbols: validatedSymbols ?? this.validatedSymbols,
-        validatedSymbolsEnabled:
-            validatedSymbolsEnabled ?? this.validatedSymbolsEnabled,
-        lockInProfits: lockInProfits ?? this.lockInProfits,
-        moveToBeAfterTp1: moveToBeAfterTp1 ?? this.moveToBeAfterTp1,
-        moveToTp1AfterTp2: moveToTp1AfterTp2 ?? this.moveToTp1AfterTp2,
-        strategyId: strategyId ?? this.strategyId,
       );
 }
 
@@ -155,7 +96,6 @@ class SettingsRepository {
   static final SettingsRepository instance = SettingsRepository._();
 
   static const _kScanLimit = 'scanLimit';
-  static const _kMinConfidence = 'minConfidence';
   static const _kDefaultLeverage = 'defaultLeverage';
   static const _kIsolated = 'isolatedMargin';
   static const _kAutoAttach = 'autoAttachSlTp';
@@ -163,22 +103,12 @@ class SettingsRepository {
   static const _kBgInterval = 'backgroundScanIntervalMin';
   static const _kExcluded = 'excludedSymbols';
   static const _kBiometric = 'biometricLockEnabled';
-  static const _kHtf = 'htfTimeframe';
-  static const _kMtf = 'mtfTimeframe';
-  static const _kLtf = 'ltfTimeframe';
   static const _kAtEnabled = 'autoTradeEnabled';
   static const _kAtMax = 'autoTradeMaxOpenPositions';
   static const _kAtMargin = 'autoTradeMarginUsdt';
   static const _kAtRiskBased = 'riskBasedSizing';
   static const _kAtRiskPct = 'autoTradeRiskPct';
   static const _kAtSlotRamp = 'slotRampEnabled';
-  static const _kAtMinConf = 'autoTradeMinConfidence';
-  static const _kValidated = 'validatedSymbols';
-  static const _kValidatedOn = 'validatedSymbolsEnabled';
-  static const _kLockProfits = 'lockInProfits';
-  static const _kBeAfterTp1 = 'moveToBeAfterTp1';
-  static const _kTp1AfterTp2 = 'moveToTp1AfterTp2';
-  static const _kStrategyId = 'strategyId';
 
   Future<SharedPreferences> get _prefs async => SharedPreferences.getInstance();
 
@@ -187,34 +117,20 @@ class SettingsRepository {
       final p = await _prefs;
       return AppSettings(
         scanLimit: p.getInt(_kScanLimit) ?? 50,
-        minConfidence: p.getInt(_kMinConfidence) ?? 70,
         defaultLeverage: p.getInt(_kDefaultLeverage) ?? 5,
         isolatedMargin: p.getBool(_kIsolated) ?? true,
         autoAttachSlTp: p.getBool(_kAutoAttach) ?? true,
         backgroundScanEnabled: p.getBool(_kBgEnabled) ?? false,
-        backgroundScanIntervalMin: p.getInt(_kBgInterval) ?? 15,
-        excludedSymbols: (p.getStringList(_kExcluded) ?? const <String>[]).toSet(),
+        backgroundScanIntervalMin: p.getInt(_kBgInterval) ?? 60,
+        excludedSymbols:
+            (p.getStringList(_kExcluded) ?? const <String>[]).toSet(),
         biometricLockEnabled: p.getBool(_kBiometric) ?? true,
-        htfTimeframe: p.getString(_kHtf) ?? '1d',
-        mtfTimeframe: p.getString(_kMtf) ?? '1d',
-        ltfTimeframe: p.getString(_kLtf) ?? '1d',
         autoTradeEnabled: p.getBool(_kAtEnabled) ?? false,
         autoTradeMaxOpenPositions: p.getInt(_kAtMax) ?? 10,
         autoTradeMarginUsdt: p.getDouble(_kAtMargin) ?? 10,
         riskBasedSizing: p.getBool(_kAtRiskBased) ?? true,
         autoTradeRiskPct: p.getDouble(_kAtRiskPct) ?? 1.0,
         slotRampEnabled: p.getBool(_kAtSlotRamp) ?? true,
-        autoTradeMinConfidence: p.getInt(_kAtMinConf) ?? 80,
-        validatedSymbols: (p.getStringList(_kValidated) ?? const <String>[])
-            .toSet(),
-        validatedSymbolsEnabled: p.getBool(_kValidatedOn) ?? false,
-        lockInProfits: p.getBool(_kLockProfits) ?? true,
-        moveToBeAfterTp1: p.getBool(_kBeAfterTp1) ?? true,
-        moveToTp1AfterTp2: p.getBool(_kTp1AfterTp2) ?? true,
-        // Stale strategyId values from prior installs ('trend_rmacd' /
-        // 'grid' / etc.) get coerced to 'ema_stack' at lookup time by
-        // StrategyRegistry.fromId — no migration needed beyond this default.
-        strategyId: p.getString(_kStrategyId) ?? 'ema_stack',
       );
     } catch (_) {
       return const AppSettings();
@@ -226,7 +142,6 @@ class SettingsRepository {
       final p = await _prefs;
       await Future.wait<void>([
         p.setInt(_kScanLimit, s.scanLimit),
-        p.setInt(_kMinConfidence, s.minConfidence),
         p.setInt(_kDefaultLeverage, s.defaultLeverage),
         p.setBool(_kIsolated, s.isolatedMargin),
         p.setBool(_kAutoAttach, s.autoAttachSlTp),
@@ -234,22 +149,12 @@ class SettingsRepository {
         p.setInt(_kBgInterval, s.backgroundScanIntervalMin),
         p.setStringList(_kExcluded, s.excludedSymbols.toList()),
         p.setBool(_kBiometric, s.biometricLockEnabled),
-        p.setString(_kHtf, s.htfTimeframe),
-        p.setString(_kMtf, s.mtfTimeframe),
-        p.setString(_kLtf, s.ltfTimeframe),
         p.setBool(_kAtEnabled, s.autoTradeEnabled),
         p.setInt(_kAtMax, s.autoTradeMaxOpenPositions),
         p.setDouble(_kAtMargin, s.autoTradeMarginUsdt),
         p.setBool(_kAtRiskBased, s.riskBasedSizing),
         p.setDouble(_kAtRiskPct, s.autoTradeRiskPct),
         p.setBool(_kAtSlotRamp, s.slotRampEnabled),
-        p.setInt(_kAtMinConf, s.autoTradeMinConfidence),
-        p.setStringList(_kValidated, s.validatedSymbols.toList()),
-        p.setBool(_kValidatedOn, s.validatedSymbolsEnabled),
-        p.setBool(_kLockProfits, s.lockInProfits),
-        p.setBool(_kBeAfterTp1, s.moveToBeAfterTp1),
-        p.setBool(_kTp1AfterTp2, s.moveToTp1AfterTp2),
-        p.setString(_kStrategyId, s.strategyId),
       ]);
     } catch (_) {/* tolerate disk failure */}
   }

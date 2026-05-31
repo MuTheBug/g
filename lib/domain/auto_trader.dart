@@ -19,10 +19,9 @@ class AutoTradeReport {
   final List<String> warnings;
 }
 
-/// Consumes a fresh batch of scanner signals and places trades for the ones
-/// that pass auto-trade policy:
+/// Consumes a fresh batch of scanner signals and places trades for the
+/// ones that pass auto-trade policy:
 ///   - Auto-trade enabled in settings.
-///   - Signal confidence >= autoTradeMinConfidence.
 ///   - Currently open positions on the symbol = 0 (don't pyramid).
 ///   - Total open positions < the equity-aware slot cap (see [allowedSlots]).
 ///   - Enough free margin for the sized position.
@@ -30,7 +29,7 @@ class AutoTradeReport {
 /// Sizing is risk-based by default: each trade risks autoTradeRiskPct % of
 /// equity (qty = risk / stop-distance). When more signals fire on the same
 /// scan than there are free slots, the strongest-trend candidates (highest
-/// ADX) win — that's the breadth-validated selection rule.
+/// ADX) win — the breadth-validated selection rule.
 class AutoTrader {
   AutoTrader(this._trading, this._journal);
   final Broker _trading;
@@ -63,33 +62,15 @@ class AutoTrader {
       return AutoTradeReport(placed: placed, skipped: skipped, warnings: warnings);
     }
 
-    // Validated-symbols whitelist gate. When the toggle is off (or the set
-    // is empty), this is a no-op.
-    final whitelist = settings.validatedSymbolsEnabled &&
-            settings.validatedSymbols.isNotEmpty
-        ? settings.validatedSymbols
-        : null;
-    final gated = whitelist == null
-        ? ranked
-        : ranked.where((s) {
-            if (whitelist.contains(s.symbol)) return true;
-            skipped.add('${s.symbol}: not in validated symbols');
-            return false;
-          }).toList();
-
-    final candidates =
-        gated.where((s) => s.confidence >= settings.autoTradeMinConfidence).toList()
-          // When more signals fire than there are free slots, take the
-          // strongest-trend ones first (validated: variant F in the
-          // portfolio iteration). Confidence ties broken by symbol.
-          ..sort((a, b) {
-            final byAdx = b.adx.compareTo(a.adx);
-            if (byAdx != 0) return byAdx;
-            return a.symbol.compareTo(b.symbol);
-          });
-    if (candidates.isEmpty) {
-      return AutoTradeReport(placed: placed, skipped: skipped, warnings: warnings);
-    }
+    // When more signals fire than there are free slots, take the
+    // strongest-trend ones first (validated: variant F in the portfolio
+    // iteration). Ties broken by symbol for determinism.
+    final candidates = List<Signal>.from(ranked)
+      ..sort((a, b) {
+        final byAdx = b.adx.compareTo(a.adx);
+        if (byAdx != 0) return byAdx;
+        return a.symbol.compareTo(b.symbol);
+      });
 
     // Snapshot the account state ONCE up front so we don't hammer the
     // /account endpoint per candidate. We re-fetch positions after each

@@ -36,10 +36,11 @@ class _SignalDetailScreenState extends ConsumerState<SignalDetailScreen> {
       _error = null;
     });
     try {
-      final settings = await ref.read(settingsRepoProvider).load();
+      // The strategy is hardcoded to the daily; we no longer read TF from
+      // settings (it caused stale saved values to override new defaults).
       final api = ref.read(binanceApiProvider);
-      final ltf = Timeframe.fromCode(settings.ltfTimeframe);
-      final candles = await api.getCandles(widget.symbol, ltf, limit: 200);
+      final candles = await api.getCandles(widget.symbol, Timeframe.d1, limit: 200);
+      final settings = await ref.read(settingsRepoProvider).load();
       final signal = await ref.read(scannerProvider).evaluateOne(widget.symbol, settings);
       if (!mounted) return;
       setState(() {

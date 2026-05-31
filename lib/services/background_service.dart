@@ -13,7 +13,6 @@ import '../data/repositories/trading_repository.dart';
 import '../domain/position_close_watcher.dart';
 import '../domain/scan_pipeline.dart';
 import '../domain/scanner.dart';
-import '../domain/stop_manager.dart';
 import '../domain/strategy.dart';
 import '../domain/strategy_registry.dart';
 import 'notification_service.dart';
@@ -59,21 +58,15 @@ void backgroundCallbackDispatcher() {
       final api = BinanceApi(creds);
       final settings = await SettingsRepository.instance.load();
       final liveBroker = TradingRepository(api);
-      final TradingStrategy strategy =
-          StrategyRegistry.fromId(settings.strategyId);
+      final TradingStrategy strategy = StrategyRegistry.all.single.create();
       final pipeline = ScanPipeline(
         scanner: MarketScanner(api, strategy),
         broker: liveBroker,
         journal: JournalRepository.instance,
         history: ScanHistoryRepository.instance,
         settingsRepo: SettingsRepository.instance,
-        // Reuse StopManager + close watcher in the background isolate so
-        // SL ratchets and close notifications continue to happen even
-        // when the app is closed.
-        stopManager: StopManager(
-          api: api,
-          journal: JournalRepository.instance,
-        ),
+        // Reuse the close watcher in the background isolate so
+        // close-notifications continue to fire when the app is closed.
         closeWatcher: PositionCloseWatcher(
           broker: liveBroker,
           journal: JournalRepository.instance,

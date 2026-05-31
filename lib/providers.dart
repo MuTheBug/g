@@ -15,7 +15,6 @@ import 'domain/auto_trader.dart';
 import 'domain/position_close_watcher.dart';
 import 'domain/scan_pipeline.dart';
 import 'domain/scanner.dart';
-import 'domain/stop_manager.dart';
 import 'domain/strategy.dart';
 import 'domain/strategy_registry.dart';
 
@@ -60,8 +59,8 @@ final tradingRepoProvider = Provider<Broker>((ref) {
 });
 
 final strategyProvider = Provider<TradingStrategy>((ref) {
-  final id = ref.watch(settingsProvider).valueOrNull?.strategyId ?? 'ema_stack';
-  return StrategyRegistry.fromId(id);
+  // Single strategy app — no picker; always the registered one.
+  return StrategyRegistry.all.single.create();
 });
 
 final scannerProvider = Provider<MarketScanner>((ref) {
@@ -74,16 +73,6 @@ final journalRepoProvider = Provider<JournalRepository>((ref) {
 
 final scanHistoryRepoProvider = Provider<ScanHistoryRepository>((ref) {
   return ScanHistoryRepository.instance;
-});
-
-/// Unified scan pipeline shared by foreground UI and background workmanager
-/// callback. Owns the scan → auto-trade → persist → notify policy in one
-/// place so the two paths can't drift.
-final stopManagerProvider = Provider<StopManager>((ref) {
-  return StopManager(
-    api: ref.watch(binanceApiProvider),
-    journal: ref.watch(journalRepoProvider),
-  );
 });
 
 /// Detects open → closed transitions and notifies the user with the full
@@ -103,7 +92,6 @@ final scanPipelineProvider = Provider<ScanPipeline>((ref) {
     journal: ref.watch(journalRepoProvider),
     history: ref.watch(scanHistoryRepoProvider),
     settingsRepo: ref.watch(settingsRepoProvider),
-    stopManager: ref.watch(stopManagerProvider),
     closeWatcher: ref.watch(positionCloseWatcherProvider),
   );
 });

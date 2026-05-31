@@ -50,19 +50,12 @@ class MarketScanner {
       return const [];
     }
 
-    // Apply the validated-symbols gate ahead of the volume sort so the
-    // scanner only considers the user-curated set when the toggle is on.
-    final validatedGate = settings.validatedSymbolsEnabled &&
-            settings.validatedSymbols.isNotEmpty
-        ? settings.validatedSymbols
-        : null;
     final filtered = tickers
-        // Crypto-only: drop tokenized stocks / commodities / FX that ride the
-        // same futures venue. The strategy was validated on crypto; trading
-        // tokenized silver would be off-distribution.
+        // Crypto-only: drop tokenized stocks / commodities / FX that ride
+        // the same futures venue. The strategy was validated on crypto;
+        // trading tokenized silver would be off-distribution.
         .where((t) => TradeUniverse.isTradableCrypto(t.symbol))
         .where((t) => !settings.excludedSymbols.contains(t.symbol))
-        .where((t) => validatedGate == null || validatedGate.contains(t.symbol))
         .toList()
       ..sort((a, b) => b.quoteVolume.compareTo(a.quoteVolume));
 
@@ -72,9 +65,13 @@ class MarketScanner {
         .toList();
     if (picked.isEmpty) return const [];
 
-    final htf = Timeframe.fromCode(settings.htfTimeframe);
-    final mtf = Timeframe.fromCode(settings.mtfTimeframe);
-    final ltf = Timeframe.fromCode(settings.ltfTimeframe);
+    // EMA Stack Trend is hardcoded to the daily across HTF/MTF/LTF — the
+    // strategy was validated only at that TF. We deliberately do NOT read
+    // the timeframe from settings so a stale saved value (e.g. "15m" from
+    // a prior build) can't silently downgrade the strategy.
+    const htf = Timeframe.d1;
+    const mtf = Timeframe.d1;
+    const ltf = Timeframe.d1;
 
     final queue = Queue<String>.from(picked);
     final signals = <Signal>[];
@@ -119,23 +116,17 @@ class MarketScanner {
   }
 
   Future<Signal?> evaluateOne(String symbol, AppSettings settings) async {
-    return _evaluateOne(
-      symbol,
-      Timeframe.fromCode(settings.htfTimeframe),
-      Timeframe.fromCode(settings.mtfTimeframe),
-      Timeframe.fromCode(settings.ltfTimeframe),
-    );
+    return _evaluateOne(symbol, Timeframe.d1, Timeframe.d1, Timeframe.d1);
   }
 
   /// Dynamic-exit check for an open [side] position in [symbol]. Fetches
-  /// the strategy's LTF candles (dropping the still-forming bar) and asks
-  /// the strategy whether its exit condition (e.g. EMA cross-back) has
-  /// triggered. Used by the scan pipeline to close trend-follower trades
-  /// that exit on an indicator rather than fixed take-profits.
+  /// the strategy's LTF (daily) candles and asks the strategy whether its
+  /// exit condition (EMA cross-back) has triggered. Used by the scan
+  /// pipeline to close trend-follower trades that exit on an indicator
+  /// rather than fixed take-profits.
   Future<bool> shouldExit(
       String symbol, SignalSide side, AppSettings settings) async {
-    final ltf = Timeframe.fromCode(settings.ltfTimeframe);
-    final candles = await _api.getCandles(symbol, ltf, limit: 300);
+    final candles = await _api.getCandles(symbol, Timeframe.d1, limit: 300);
     if (candles.isEmpty) return false;
     final closed = candles.sublist(0, candles.length - 1);
     return _strategy.shouldExit(side: side, ltf: closed);
