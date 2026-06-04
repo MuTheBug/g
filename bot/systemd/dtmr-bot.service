@@ -1,0 +1,24 @@
+[Unit]
+Description=DTM-R Binance USDT-M Futures trading bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__WORKDIR__
+ExecStart=__WORKDIR__/run.sh
+Restart=on-failure
+RestartSec=30
+# Don't thrash on a hard crash loop.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+# Logs go to the journal: journalctl -u dtmr-bot -f
+StandardOutput=journal
+StandardError=journal
+# Light hardening.
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
