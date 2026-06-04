@@ -74,6 +74,8 @@ class Engine:
         self.trades = []
         self.peak_concurrent = 0
         self.peak_margin = 0.0
+        self.bars_full = 0        # bars where the concurrency cap was saturated
+        self.total_bars = 0       # bars evaluated for entries
 
     def _strat_for(self, sym):
         """Strategy may be a single object (applied to all symbols) or a
@@ -185,7 +187,12 @@ class Engine:
                     del open_pos[sym]
 
             # 2) entries (respect concurrency + monthly circuit breaker)
+            # instrument how often we're at the position cap: a new signal
+            # arriving now would be blocked, so this == the fraction of demand
+            # the $40 simply can't take.
+            self.total_bars += 1
             if len(open_pos) >= cfg.max_concurrent:
+                self.bars_full += 1
                 continue
             if cfg.monthly_stop is not None and month_pnl <= -cfg.monthly_stop:
                 continue   # halt new risk for the rest of this month
