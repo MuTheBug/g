@@ -197,6 +197,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 onChanged: (v) => notifier.update(
                     (st) => st.copyWith(defaultLeverage: v.round())),
               ),
+              Text(
+                'Auto-trade will skip any signal whose stop would land '
+                'beyond the liquidation price at ${s.defaultLeverage}x '
+                '(safe zone ≈ ${(100.0 / s.defaultLeverage - 3.0).toStringAsFixed(0)}% '
+                'adverse move). Lower leverage = wider safe zone.',
+                style: const TextStyle(
+                    color: ApexColors.textMuted, fontSize: 11.5),
+              ),
+              const SizedBox(height: 6),
               Row(children: [
                 const Expanded(child: Text('Isolated margin')),
                 Switch(

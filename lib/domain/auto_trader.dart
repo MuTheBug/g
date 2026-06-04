@@ -50,6 +50,32 @@ class AutoTrader {
     return cap;
   }
 
+  /// True if [sig]'s catastrophic stop would land beyond Binance's
+  /// isolated-margin liquidation price at [leverage] — meaning the
+  /// position gets force-closed at the liquidation engine's price
+  /// before the strategy's stop ever fires. We skip such signals so
+  /// the live trade actually exits on the stop the strategy designed
+  /// for, not on a liquidation. [bufferPct] = safety margin between
+  /// the strategy stop and the liquidation price (default 3 %).
+  ///
+  /// Backtest evidence (tool/backtest_portfolio_iter.py at 4x):
+  /// adding this filter cut max drawdown 47% -> 33% and eliminated all
+  /// 23 liquidations across the 6-year sample, at the cost of ~14 % of
+  /// final return.
+  static bool wouldLiquidateBeforeStop(
+    Signal sig,
+    int leverage, {
+    double bufferPct = 0.03,
+  }) {
+    if (leverage <= 1) return false; // no real liquidation risk at 1x
+    if (sig.plan.entry <= 0 || sig.plan.stopLoss <= 0) return false;
+    final stopDistPct =
+        (sig.plan.entry - sig.plan.stopLoss).abs() / sig.plan.entry;
+    final liqDistPct = (1.0 / leverage) - bufferPct;
+    if (liqDistPct <= 0) return true; // leverage so high there's no safe zone
+    return stopDistPct > liqDistPct;
+  }
+
   Future<AutoTradeReport> processSignals(
     List<Signal> ranked,
     AppSettings settings,
@@ -102,6 +128,21 @@ class AutoTrader {
       }
       if (openSymbols.contains(sig.symbol)) {
         skipped.add('${sig.symbol}: already has an open position');
+        continue;
+      }
+
+      // Volatility gate — skip if the strategy's stop would land beyond
+      // the liquidation price at the configured leverage. Without this,
+      // ~7% of trades at 4x get force-closed by Binance at the margin
+      // cap before our SL ever fires (the issue the user observed on
+      // INJ / HOME).
+      if (wouldLiquidateBeforeStop(sig, settings.defaultLeverage)) {
+        final stopPct =
+            ((sig.plan.entry - sig.plan.stopLoss).abs() / sig.plan.entry) * 100;
+        final liqPct = (100.0 / settings.defaultLeverage) - 3.0;
+        skipped.add('${sig.symbol}: stop ${stopPct.toStringAsFixed(1)}% '
+            '> liq ${liqPct.toStringAsFixed(1)}% at '
+            '${settings.defaultLeverage}x — would liquidate before stop');
         continue;
       }
 
