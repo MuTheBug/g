@@ -192,7 +192,7 @@ def simulate(data: dict, c: Cfg, start_ts=None, end_ts=None):
             if qty*px < 1: continue
             open_pos[sym] = dict(side=side, entry=px, qty=qty, atr_e=atr_e,
                                  stop=(px-stop_dist if side > 0 else px+stop_dist),
-                                 opened=ts, ext=px)
+                                 opened=ts, ext=px, risk=qty*stop_dist)
 
         # 2) manage open positions
         for sym in list(open_pos):
@@ -251,8 +251,12 @@ def _close(p, sym, exit_px, ts, reason, trades, c: Cfg):
     gross = p["qty"]*(exit_fill - p["entry"])*p["side"]
     fees = c.fee*(p["qty"]*p["entry"] + p["qty"]*exit_fill)
     pnl = gross - fees
+    risk = p.get("risk", 0.0)
     trades.append(dict(symbol=sym, side=p["side"], entry=p["entry"], exit=exit_fill,
-                       qty=p["qty"], opened=p["opened"], closed=ts, reason=reason, pnl=pnl))
+                       qty=p["qty"], opened=p["opened"], closed=ts, reason=reason, pnl=pnl,
+                       risk=risk, R=(pnl/risk if risk > 0 else 0.0),
+                       hold_days=(ts-p["opened"])/86_400_000,
+                       ret_pct=(exit_fill/p["entry"]-1)*p["side"]))
     return pnl
 
 # ------------------------------- metrics -----------------------------------
