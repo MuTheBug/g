@@ -41,6 +41,8 @@ class Config:
     maint_margin: float = 0.005     # 0.5% maintenance margin -> liq buffer
     max_concurrent: int = 6         # cap simultaneous open positions (margin)
     monthly_stop: float = None      # stop opening trades after -$X realized in a month
+    compound: bool = False          # size off CURRENT equity (reinvest) vs fixed base
+    monthly_stop_pct: float = None  # compound-mode month stop: fraction of month-start equity
     costs: Costs = field(default_factory=Costs)
 
 
@@ -56,6 +58,7 @@ class Trade:
     leverage: float
     stop: float
     take: float
+    risk_dollar: float = 0.0           # $ risked on this trade (for R-multiple)
     trail_dist: float = float("nan")   # fractional trailing-stop distance (NaN=off)
     hwm: float = None                  # running favorable extreme price
     exit_time: pd.Timestamp = None
@@ -109,10 +112,15 @@ class Engine:
         self._prep()
         cfg = self.cfg
         c = cfg.costs
-        risk_dollar = cfg.base_capital * cfg.risk_pct
         open_pos = {}     # symbol -> Trade
         cur_month = None  # circuit-breaker state
         month_pnl = 0.0
+        # equity accounting (used for compounding + drawdown metrics in both modes)
+        cash = cfg.base_capital          # realized account equity
+        committed = 0.0                  # margin locked in open positions
+        month_start_cash = cash
+        self.equity_curve = [(self.timeline[0], cash)] if len(self.timeline) else []
+        self.ruined = False
 
         # Fast lookup arrays
         cols = {}
@@ -138,6 +146,7 @@ class Engine:
             m = (ts.year, ts.month)
             if m != cur_month:
                 cur_month, month_pnl = m, 0.0
+                month_start_cash = cash
             # 1) manage open positions (exits first)
             for sym in list(open_pos.keys()):
                 tr = open_pos[sym]
@@ -182,20 +191,30 @@ class Engine:
                     elif tr.side == -1 and lo <= tr.take:
                         exit_px, reason = tr.take, "take"
                 if exit_px is not None:
-                    self._close(tr, ts, exit_px, reason, risk_dollar)
+                    self._close(tr, ts, exit_px, reason)
                     month_pnl += tr.pnl
+                    cash += tr.pnl
+                    committed -= tr.margin
+                    self.equity_curve.append((ts, cash))
                     del open_pos[sym]
+                    if cash <= 0:           # account wiped
+                        self.ruined = True
 
             # 2) entries (respect concurrency + monthly circuit breaker)
             # instrument how often we're at the position cap: a new signal
             # arriving now would be blocked, so this == the fraction of demand
             # the $40 simply can't take.
             self.total_bars += 1
+            if self.ruined:
+                continue   # account wiped — no more trading
             if len(open_pos) >= cfg.max_concurrent:
                 self.bars_full += 1
                 continue
             if cfg.monthly_stop is not None and month_pnl <= -cfg.monthly_stop:
-                continue   # halt new risk for the rest of this month
+                continue   # halt new risk for the rest of this month ($ stop)
+            if cfg.monthly_stop_pct is not None and \
+                    month_pnl <= -cfg.monthly_stop_pct * month_start_cash:
+                continue   # halt new risk for the month (% of equity stop)
             for sym, C in cols.items():
                 if sym in open_pos:
                     continue
@@ -213,8 +232,10 @@ class Engine:
                     continue
                 side = 1 if go_long else -1
                 fill = C["open"][i] * (1 + side * c.slippage)  # pay slippage
-                # risk-based sizing off the fixed base
-                qty = risk_dollar / (fill * sd)
+                # risk-based sizing: % of CURRENT equity (compound) or fixed base
+                equity_for_sizing = cash if cfg.compound else cfg.base_capital
+                rd = equity_for_sizing * cfg.risk_pct
+                qty = rd / (fill * sd)
                 notional = qty * fill
                 # CRITICAL: pick leverage so the STOP is reached before the
                 # liquidation level (liq_dist ~= 1/lev - maint must exceed the
@@ -223,13 +244,17 @@ class Engine:
                 # risked, which is the real cost of carrying the position.
                 lev = min(cfg.leverage_cap, 1.0 / (sd + cfg.maint_margin + LIQ_BUFFER))
                 margin = notional / lev
+                # in compound mode we can't commit more margin than free equity
+                if cfg.compound and margin > (cash - committed) + 1e-9:
+                    continue
                 stop = fill * (1 - side * sd)
                 td = C["tp_dist"][i]
                 take = fill * (1 + side * td) if (td and not np.isnan(td)) else np.nan
                 trail = C["trail_dist"][i]
                 tr = Trade(sym, side, ts, fill, qty, notional, margin, lev,
-                           stop, take, trail_dist=trail, hwm=fill)
+                           stop, take, risk_dollar=rd, trail_dist=trail, hwm=fill)
                 open_pos[sym] = tr
+                committed += margin
             # track peak concurrency / margin usage for feasibility on $40
             if open_pos:
                 self.peak_concurrent = max(self.peak_concurrent, len(open_pos))
@@ -239,11 +264,15 @@ class Engine:
         # close any still-open at last price
         for sym, tr in open_pos.items():
             last_i = len(cols[sym]["close"]) - 1
-            self._close(tr, self.data[sym].index[-1],
-                        cols[sym]["close"][last_i], "eod", risk_dollar)
+            ts_end = self.data[sym].index[-1]
+            self._close(tr, ts_end, cols[sym]["close"][last_i], "eod")
+            cash += tr.pnl
+            committed -= tr.margin
+            self.equity_curve.append((ts_end, cash))
+        self.final_equity = cash
         return self._results()
 
-    def _close(self, tr, ts, raw_exit, reason, risk_dollar):
+    def _close(self, tr, ts, raw_exit, reason):
         c = self.cfg.costs
         # exit slippage (market)
         exit_px = raw_exit * (1 - tr.side * c.slippage)
@@ -254,7 +283,7 @@ class Engine:
         tr.exit_px = exit_px
         tr.reason = reason
         tr.pnl = gross - fees - funding
-        tr.r_multiple = tr.pnl / risk_dollar
+        tr.r_multiple = tr.pnl / tr.risk_dollar if tr.risk_dollar else 0.0
         self.trades.append(tr)
 
     def _results(self):
@@ -270,6 +299,25 @@ class Engine:
         df = pd.DataFrame(rows).sort_values("exit_time").reset_index(drop=True)
         return df, self.summary(df)
 
+    def equity_stats(self):
+        """Final equity, CAGR and max drawdown from the realized equity curve."""
+        ec = getattr(self, "equity_curve", [])
+        if len(ec) < 2:
+            return {}
+        eq = pd.Series([v for _, v in ec], index=[t for t, _ in ec])
+        peak = eq.cummax()
+        dd = (eq - peak) / peak
+        years = max((eq.index[-1] - eq.index[0]).days / 365.25, 1e-9)
+        final = float(eq.iloc[-1])
+        start = float(eq.iloc[0])
+        cagr = (final / start) ** (1 / years) - 1 if final > 0 and start > 0 else -1.0
+        return {
+            "start_equity": start, "final_equity": final, "years": years,
+            "total_return": final / start - 1, "cagr": cagr,
+            "max_drawdown": float(dd.min()), "ruined": getattr(self, "ruined", False),
+            "equity": eq,
+        }
+
     def summary(self, df):
         if df.empty:
             return {}
@@ -277,6 +325,7 @@ class Engine:
         monthly = df.set_index("exit_time").pnl.resample("MS").sum()
         n_months = len(monthly)
         return {
+            **self.equity_stats(),
             "trades": len(df),
             "win_rate": len(wins) / len(df),
             "avg_r": df.r.mean(),
