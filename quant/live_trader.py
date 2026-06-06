@@ -60,6 +60,9 @@ def load_config():
         "leverage_cap": int(float(_env("APEX_LEVERAGE_CAP", "25"))),
         "max_concurrent": int(_env("APEX_MAX_CONCURRENT", "6")),
         "monthly_stop": float(_env("APEX_MONTHLY_STOP", "12")),
+        # compounding: size off live equity, reinvest everything (no withdrawals)
+        "compound": _env("APEX_COMPOUND", "0") == "1",
+        "monthly_stop_pct": float(_env("APEX_MONTHLY_STOP_PCT", "0.30")),
         "target_withdraw": float(_env("APEX_TARGET_WITHDRAW", "100")),
         "symbols": [s.strip().upper() for s in
                     _env("APEX_SYMBOLS",
@@ -203,17 +206,25 @@ class LiveTrader:
         open_syms = {p["symbol"] for p in positions}
         n_open = len(open_syms)
 
-        # monthly circuit-breaker + withdrawable surplus
+        # monthly circuit-breaker. In compound mode it's a % of equity; in
+        # fixed mode it's a $ amount.
         realized = self.month_realized_pnl()
-        broken = realized <= -cfg["monthly_stop"]
-        surplus = wallet - cfg["base_capital"]
-        log.info("wallet=$%.2f avail=$%.2f open=%d month_realized=$%.2f%s "
-                 "withdrawable=$%.2f", wallet, avail, n_open, realized,
-                 " [CIRCUIT-BROKEN]" if broken else "", max(surplus, 0))
-        if surplus >= cfg["target_withdraw"]:
-            log.info("** Withdrawable surplus $%.2f >= target $%.0f — you can "
-                     "withdraw ~$%.0f and keep the $%.0f base. **", surplus,
-                     cfg["target_withdraw"], surplus, cfg["base_capital"])
+        if cfg["compound"]:
+            limit = cfg["monthly_stop_pct"] * wallet
+            broken = realized <= -limit
+        else:
+            broken = realized <= -cfg["monthly_stop"]
+        mode = ("COMPOUND eq=$%.2f" % wallet) if cfg["compound"] else "FIXED"
+        log.info("[%s] wallet=$%.2f avail=$%.2f open=%d month_realized=$%.2f%s",
+                 mode, wallet, avail, n_open, realized,
+                 " [CIRCUIT-BROKEN]" if broken else "")
+        if not cfg["compound"]:
+            surplus = wallet - cfg["base_capital"]
+            if surplus >= cfg["target_withdraw"]:
+                log.info("** Withdrawable surplus $%.2f >= target $%.0f — you "
+                         "can withdraw ~$%.0f and keep the $%.0f base. **",
+                         surplus, cfg["target_withdraw"], surplus,
+                         cfg["base_capital"])
 
         # evaluate every (symbol, timeframe) feed
         for base in cfg["symbols"]:
@@ -251,7 +262,7 @@ class LiveTrader:
                     log.info("  skip: max_concurrent %d reached", cfg["max_concurrent"]); continue
                 if broken:
                     log.info("  skip: monthly circuit-breaker active"); continue
-                placed = self.enter(symbol, side, sd, td, rules, avail)
+                placed = self.enter(symbol, side, sd, td, rules, avail, wallet)
                 if placed:
                     open_syms.add(symbol)
                     n_open += 1
@@ -259,9 +270,11 @@ class LiveTrader:
         self.state.save()
 
     # ---- sizing + order placement (mirrors openMarketWithBrackets) ----
-    def enter(self, symbol, side, stop_dist, tp_dist, rules, avail):
+    def enter(self, symbol, side, stop_dist, tp_dist, rules, avail, equity):
         cfg = self.cfg
-        risk_dollar = cfg["base_capital"] * cfg["risk_pct"]
+        # compound: risk a % of CURRENT equity; fixed: a % of the base.
+        sizing_base = equity if cfg["compound"] else cfg["base_capital"]
+        risk_dollar = sizing_base * cfg["risk_pct"]
         price = self.api.mark_price(symbol)
         if price <= 0:
             log.warning("  %s no mark price, skip", symbol); return None
@@ -391,11 +404,14 @@ class LiveTrader:
         return False
 
     def run_forever(self):
-        log.info("APEX live trader starting | testnet=%s live=%s base=$%.0f "
-                 "risk=%.0f%% lev<=%dx conc<=%d monthly_stop=$%.0f",
-                 self.cfg["testnet"], self.cfg["live"], self.cfg["base_capital"],
-                 self.cfg["risk_pct"] * 100, self.cfg["leverage_cap"],
-                 self.cfg["max_concurrent"], self.cfg["monthly_stop"])
+        mode = "COMPOUND (reinvest)" if self.cfg["compound"] else "FIXED-stake"
+        stop = (f"{self.cfg['monthly_stop_pct']:.0%} of equity"
+                if self.cfg["compound"] else f"${self.cfg['monthly_stop']:.0f}")
+        log.info("APEX live trader starting | %s | testnet=%s live=%s base=$%.0f "
+                 "risk=%.1f%% lev<=%dx conc<=%d monthly_stop=%s",
+                 mode, self.cfg["testnet"], self.cfg["live"],
+                 self.cfg["base_capital"], self.cfg["risk_pct"] * 100,
+                 self.cfg["leverage_cap"], self.cfg["max_concurrent"], stop)
         log.info("symbols=%s timeframes=%s",
                  ",".join(self.cfg["symbols"]), ",".join(self.cfg["timeframes"]))
         if not self.cfg["live"]:
