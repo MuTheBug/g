@@ -180,6 +180,27 @@ class BinanceFutures:
             p["incomeType"] = income_type
         return self._request("GET", "/fapi/v1/income", p, signed=True)
 
+    def leverage_brackets(self):
+        """GET /fapi/v1/leverageBracket — per-symbol max leverage + maintenance
+        margin rate. Returns {symbol: (max_leverage, base_maint_rate)} using the
+        first (smallest-notional) bracket, which is what a tiny account trades in.
+        These vary a lot by asset (majors allow ~100x at ~0.4% mm; small alts cap
+        at ~10-20x with ~1-2.5% mm), so liquidation distance is asset-specific."""
+        r = self._request("GET", "/fapi/v1/leverageBracket", signed=True)
+        out = {}
+        for row in r if isinstance(r, list) else []:
+            sym = row.get("symbol")
+            brs = row.get("brackets", [])
+            if not sym or not brs:
+                continue
+            b0 = brs[0]
+            try:
+                out[sym] = (float(b0.get("initialLeverage", 20)),
+                            float(b0.get("maintMarginRatio", 0.005)))
+            except (TypeError, ValueError):
+                pass
+        return out
+
     def set_leverage(self, symbol, leverage):
         return self._request("POST", "/fapi/v1/leverage",
                             {"symbol": symbol, "leverage": int(leverage)}, signed=True)

@@ -63,6 +63,8 @@ def load_config():
         # compounding: size off live equity, reinvest everything (no withdrawals)
         "compound": _env("APEX_COMPOUND", "0") == "1",
         "monthly_stop_pct": float(_env("APEX_MONTHLY_STOP_PCT", "0.30")),
+        # liquidation must sit >= this x the stop distance away (asset-aware)
+        "liq_safety": float(_env("APEX_LIQ_SAFETY", "2.0")),
         "target_withdraw": float(_env("APEX_TARGET_WITHDRAW", "100")),
         "symbols": [s.strip().upper() for s in
                     _env("APEX_SYMBOLS",
@@ -130,6 +132,7 @@ class LiveTrader:
         self.api = api
         self.state = State(cfg["state_file"])
         self.rules = {}
+        self.brackets = {}     # symbol -> (max_leverage, maint_margin_rate)
         self.rules_at = 0
         self.hedge = None
         # one DonchianBreakout per timeframe, same params as the backtest
@@ -144,6 +147,11 @@ class LiveTrader:
         now = time.time()
         if not self.rules or now - self.rules_at > 3600:
             self.rules = self.api.all_symbol_rules()
+            try:
+                self.brackets = self.api.leverage_brackets()
+            except Exception as e:
+                log.warning("leverageBracket fetch failed, using flat fallback: %s", e)
+                self.brackets = {}
             self.rules_at = now
 
     def get_hedge(self):
@@ -278,9 +286,20 @@ class LiveTrader:
         price = self.api.mark_price(symbol)
         if price <= 0:
             log.warning("  %s no mark price, skip", symbol); return None
-        # leverage chosen so the STOP sits inside liquidation (same as backtest)
-        lev = min(cfg["leverage_cap"], int(1.0 / (stop_dist + MAINT_MARGIN + LIQ_BUFFER)))
+        # Leverage chosen so liquidation sits a SAFE distance beyond the stop,
+        # using THIS asset's real max leverage + maintenance margin (they differ
+        # a lot per coin). lev <= 1/(liq_safety*stop + maint + buffer), then
+        # capped by the exchange's max leverage for the symbol and our global cap.
+        max_lev, maint = self.brackets.get(symbol, (cfg["leverage_cap"], MAINT_MARGIN))
+        safe_lev = 1.0 / (cfg["liq_safety"] * stop_dist + maint + LIQ_BUFFER)
+        lev = int(min(cfg["leverage_cap"], max_lev, safe_lev))
         lev = max(1, lev)
+        # verify the gap with the asset's real maintenance margin; skip if the
+        # stop can't be placed safely inside liquidation even at 1x.
+        liq_dist = 1.0 / lev - maint
+        if liq_dist <= stop_dist * 1.2:
+            log.info("  skip: %s liq too close (liq %.2f%% vs stop %.2f%% at %dx)",
+                     symbol, liq_dist * 100, stop_dist * 100, lev); return None
         notional = risk_dollar / stop_dist
         qty = notional / price
         qty_str = rules.format_quantity(qty)

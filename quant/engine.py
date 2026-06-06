@@ -37,8 +37,9 @@ class Costs:
 class Config:
     base_capital: float = 40.0
     risk_pct: float = 0.10          # risk this fraction of BASE per trade
-    leverage_cap: float = 20.0      # max leverage the exchange allows for sizing
-    maint_margin: float = 0.005     # 0.5% maintenance margin -> liq buffer
+    leverage_cap: float = 20.0      # hard cap on leverage
+    maint_margin: float = 0.005     # maintenance margin rate (liq buffer)
+    liq_safety: float = 2.0         # liquidation must be >= this x the stop distance away
     max_concurrent: int = 6         # cap simultaneous open positions (margin)
     monthly_stop: float = None      # stop opening trades after -$X realized in a month
     compound: bool = False          # size off CURRENT equity (reinvest) vs fixed base
@@ -237,12 +238,13 @@ class Engine:
                 rd = equity_for_sizing * cfg.risk_pct
                 qty = rd / (fill * sd)
                 notional = qty * fill
-                # CRITICAL: pick leverage so the STOP is reached before the
-                # liquidation level (liq_dist ~= 1/lev - maint must exceed the
-                # stop distance + a buffer). Otherwise a wide stop would liquidate
-                # first and understate the loss. This makes margin ~= the dollar
-                # risked, which is the real cost of carrying the position.
-                lev = min(cfg.leverage_cap, 1.0 / (sd + cfg.maint_margin + LIQ_BUFFER))
+                # CRITICAL: pick leverage so liquidation sits a SAFE distance
+                # beyond the stop -- at least liq_safety x the stop distance away
+                # (plus maintenance) -- so a wick or slippage past the stop is a
+                # clean -1R exit, not a liquidation. Higher liq_safety = lower
+                # leverage = more margin per trade, but a real safety gap.
+                lev = min(cfg.leverage_cap,
+                          1.0 / (cfg.liq_safety * sd + cfg.maint_margin + LIQ_BUFFER))
                 margin = notional / lev
                 # in compound mode we can't commit more margin than free equity
                 if cfg.compound and margin > (cash - committed) + 1e-9:

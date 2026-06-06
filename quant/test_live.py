@@ -41,6 +41,10 @@ class MockApi:
     def all_symbol_rules(self):
         return self.rules
 
+    def leverage_brackets(self):
+        # realistic-ish: majors allow high leverage at low maint margin
+        return {"BTCUSDT": (125.0, 0.004), "ETHUSDT": (100.0, 0.005)}
+
     def account(self):
         return {"availableBalance": "40", "totalWalletBalance": "40"}
 
