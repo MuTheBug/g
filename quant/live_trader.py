@@ -35,6 +35,7 @@ from datetime import datetime, timezone
 import pandas as pd
 
 from exchange import (BinanceFutures, BinanceApiError, safe_trigger_on_side)
+from notify import Telegram
 import strategies as S
 from combined import TF_PARAMS
 
@@ -82,6 +83,10 @@ def load_config():
         "state_file": os.path.expanduser(
             _env("APEX_STATE_FILE", "~/.apex_live_state.json")),
         "close_on_failed_sl": _env("APEX_CLOSE_ON_FAILED_SL", "1") == "1",
+        # Telegram notifications (optional)
+        "tg_token": _env("APEX_TELEGRAM_TOKEN", ""),
+        "tg_chat": _env("APEX_TELEGRAM_CHAT_ID", ""),
+        "report_hours": float(_env("APEX_REPORT_HOURS", "24")),
     }
 
 
@@ -108,7 +113,8 @@ def load_credentials(keys_file):
 class State:
     def __init__(self, path):
         self.path = path
-        self.data = {"feeds": {}, "month": None, "month_start_balance": None}
+        self.data = {"feeds": {}, "month": None, "month_start_balance": None,
+                     "report_at": 0}
         if os.path.exists(path):
             try:
                 self.data.update(json.load(open(path)))
@@ -140,6 +146,9 @@ class LiveTrader:
         self.brackets = {}     # symbol -> (max_leverage, maint_margin_rate)
         self.rules_at = 0
         self.hedge = None
+        self.tg = Telegram(cfg["tg_token"], cfg["tg_chat"])
+        self.open_state = {}   # symbol -> {opened_ms, side} for close detection
+        self.prev_broken = False
         # one DonchianBreakout per timeframe, same params as the backtest
         self.strats = {tf: S.DonchianBreakout(**TF_PARAMS[tf])
                        for tf in cfg["timeframes"] if tf in TF_PARAMS}
@@ -189,6 +198,44 @@ class LiveTrader:
         return sum(float(r.get("income", 0)) for r in rows
                    if r.get("incomeType") in keep)
 
+    def symbol_realized(self, symbol, since_ms):
+        """Net realized $ for one symbol since `since_ms` (for close reports)."""
+        try:
+            rows = self.api.income(since_ms, symbol=symbol)
+        except Exception:
+            return None
+        keep = {"REALIZED_PNL", "COMMISSION", "FUNDING_FEE"}
+        return sum(float(r.get("income", 0)) for r in rows
+                   if r.get("incomeType") in keep)
+
+    def maybe_report(self, wallet, avail, positions, realized, broken):
+        """Send a periodic status report every cfg['report_hours']."""
+        now = time.time() * 1000
+        interval = self.cfg["report_hours"] * 3600 * 1000
+        if now - self.state.data.get("report_at", 0) < interval:
+            return
+        self.state.data["report_at"] = now
+        self.state.save()
+        cfg = self.cfg
+        env = ("REAL" if not cfg["testnet"] else "TESTNET") + \
+              ("/LIVE" if cfg["live"] else "/DRY-RUN")
+        mode = "compound" if cfg["compound"] else "fixed-stake"
+        lines = [f"📊 APEX report ({env}, {mode})",
+                 f"wallet ${wallet:.2f} | available ${avail:.2f}",
+                 f"month realized P&L ${realized:+.2f}"
+                 + ("  🛑 circuit-broken" if broken else ""),
+                 f"open positions: {len(positions)}"]
+        for p in positions:
+            up = float(p.get("unRealizedProfit", p.get("unrealizedProfit", 0)))
+            amt = float(p.get("positionAmt", 0))
+            side = "LONG" if amt > 0 else "SHORT"
+            lines.append(f"  {p['symbol']} {side} uPnL ${up:+.2f}")
+        if not cfg["compound"]:
+            surplus = wallet - cfg["base_capital"]
+            lines.append(f"withdrawable surplus ${max(surplus, 0):.2f} "
+                         f"(base ${cfg['base_capital']:.0f})")
+        self.tg.send("\n".join(lines))
+
     def klines_df(self, symbol, interval, limit=400):
         raw = self.api.klines(symbol, interval, limit)
         if not raw:
@@ -213,11 +260,32 @@ class LiveTrader:
             positions = self.api.positions()
         except Exception as e:
             log.error("account/positions fetch failed: %s", e)
+            self.tg.send(f"⚠️ APEX: account/positions fetch failed: {e}",
+                         throttle_key="acct_err", throttle_s=1800)
             return
         avail = float(acct.get("availableBalance", 0))
         wallet = float(acct.get("totalWalletBalance", 0))
-        open_syms = {p["symbol"] for p in positions}
+        pos_by_sym = {p["symbol"]: p for p in positions}
+        open_syms = set(pos_by_sym)
         n_open = len(open_syms)
+
+        # --- detect & report CLOSED positions (vanished since last loop) ---
+        for sym in list(self.open_state):
+            if sym not in open_syms:
+                info = self.open_state.pop(sym)
+                pnl = self.symbol_realized(sym, info["opened_ms"] - 1000)
+                pstr = (f"{pnl:+.2f} USDT" if pnl is not None else "n/a")
+                emoji = "✅" if (pnl or 0) >= 0 else "❌"
+                self.tg.send(f"{emoji} CLOSED {sym} {info['side'].upper()} "
+                             f"| realized {pstr} | wallet ${wallet:.2f}")
+                log.info("position closed: %s pnl=%s", sym, pstr)
+        # adopt any pre-existing positions (e.g. after a restart) silently
+        for sym in open_syms:
+            if sym not in self.open_state:
+                p = pos_by_sym[sym]
+                side = "long" if float(p.get("positionAmt", 0)) > 0 else "short"
+                self.open_state[sym] = {"opened_ms": int(time.time() * 1000),
+                                        "side": side}
 
         # monthly circuit-breaker. In compound mode it's a % of equity; in
         # fixed mode it's a $ amount.
@@ -231,13 +299,25 @@ class LiveTrader:
         log.info("[%s] wallet=$%.2f avail=$%.2f open=%d month_realized=$%.2f%s",
                  mode, wallet, avail, n_open, realized,
                  " [CIRCUIT-BROKEN]" if broken else "")
+        # circuit-breaker transition alert (once, on activation)
+        if broken and not self.prev_broken:
+            self.tg.send(f"🛑 APEX: monthly circuit-breaker HIT — month P&L "
+                         f"${realized:.2f}. No new trades until next month. "
+                         f"Wallet ${wallet:.2f}.")
+        self.prev_broken = broken
         if not cfg["compound"]:
             surplus = wallet - cfg["base_capital"]
             if surplus >= cfg["target_withdraw"]:
-                log.info("** Withdrawable surplus $%.2f >= target $%.0f — you "
-                         "can withdraw ~$%.0f and keep the $%.0f base. **",
-                         surplus, cfg["target_withdraw"], surplus,
-                         cfg["base_capital"])
+                log.info("** Withdrawable surplus $%.2f >= target $%.0f **",
+                         surplus, cfg["target_withdraw"])
+                self.tg.send(f"💰 APEX: withdrawable surplus ${surplus:.2f} ≥ "
+                             f"target ${cfg['target_withdraw']:.0f} — you can "
+                             f"withdraw ~${surplus:.0f} and keep the "
+                             f"${cfg['base_capital']:.0f} base.",
+                             throttle_key="withdraw", throttle_s=86400)
+
+        # periodic status report
+        self.maybe_report(wallet, avail, positions, realized, broken)
 
         # evaluate every (symbol, timeframe) feed
         for base in cfg["symbols"]:
@@ -331,6 +411,9 @@ class LiveTrader:
             tp_px = price * (1 + (1 if side == "long" else -1) * tp_dist)
             log.info("  DRY-RUN SL≈%s TP≈%s", rules.format_price(stop_px),
                      rules.format_price(tp_px))
+            self.tg.send(f"🔎 [DRY-RUN] would {side.upper()} {symbol} qty {qty_str} "
+                         f"@~{rules.format_price(price)} {lev}x | "
+                         f"SL {rules.format_price(stop_px)} TP {rules.format_price(tp_px)}")
             return margin
 
         # --- real placement ---
@@ -349,11 +432,16 @@ class LiveTrader:
                 newClientOrderId=self.coid("ENTRY"),
                 **({"positionSide": pos_side} if hedge else {}))
         except BinanceApiError as e:
-            log.error("  ENTRY failed: %s", e); return None
+            log.error("  ENTRY failed: %s", e)
+            self.tg.send(f"⚠️ APEX: ENTRY failed {symbol} {side}: {e}")
+            return None
         fill = float(entry.get("avgPrice", 0)) or price
         filled_qty = float(entry.get("executedQty", 0)) or float(qty_str)
         qty_close = rules.format_quantity(filled_qty)
         log.info("  filled %s @ %.6f", qty_close, fill)
+        # record for close-detection / reporting
+        self.open_state[symbol] = {"opened_ms": int(time.time() * 1000),
+                                   "side": side}
 
         mark = self.api.mark_price(symbol)
         sign = 1 if side == "long" else -1
@@ -376,17 +464,30 @@ class LiveTrader:
                         symbol=symbol, side=close_side, type="MARKET",
                         quantity=qty_close, newClientOrderId=self.coid("PANIC"),
                         **({"positionSide": pos_side} if hedge else {"reduceOnly": "true"}))
+                    self.tg.send(f"⚠️ APEX: SL placement FAILED on {symbol} — "
+                                 f"position closed immediately (no naked risk).")
                 except Exception as e:
                     log.critical("  panic-close failed: %s", e)
+                    self.tg.send(f"🚨 APEX: SL FAILED *and* panic-close FAILED on "
+                                 f"{symbol}: {e} — CHECK MANUALLY NOW.")
+                self.open_state.pop(symbol, None)
                 return None
 
         # Take-profit (skip if price already blew past it)
         safe_tp = safe_trigger_on_side(side, False, mark, tp_px, rules)
+        tp_placed = None
         if safe_tp and ((side == "long" and safe_tp > mark) or
                         (side == "short" and safe_tp < mark)):
-            self.place_bracket(symbol, close_side, "TAKE_PROFIT_MARKET",
-                               rules.format_price(safe_tp), qty_close,
-                               pos_side, hedge, "TP")
+            if self.place_bracket(symbol, close_side, "TAKE_PROFIT_MARKET",
+                                  rules.format_price(safe_tp), qty_close,
+                                  pos_side, hedge, "TP"):
+                tp_placed = safe_tp
+        emoji = "📈" if side == "long" else "📉"
+        sl_str = rules.format_price(safe_stop) if safe_stop else "n/a"
+        tp_str = f" TP {rules.format_price(tp_placed)}" if tp_placed else ""
+        self.tg.send(f"{emoji} OPENED {symbol} {side.upper()} qty {qty_close} "
+                     f"@ {rules.format_price(fill)} | {lev}x | SL {sl_str}{tp_str} "
+                     f"| risk ${risk_dollar:.2f}")
         return margin
 
     def place_bracket(self, symbol, close_side, otype, trigger, qty, pos_side,
@@ -441,13 +542,27 @@ class LiveTrader:
         if not self.cfg["live"]:
             log.warning("DRY-RUN: no real orders will be placed "
                         "(set APEX_LIVE=1 to trade).")
+        env = ("REAL" if not self.cfg["testnet"] else "TESTNET") + \
+              ("/LIVE" if self.cfg["live"] else "/DRY-RUN")
+        if self.tg.enabled:
+            log.info("Telegram notifications enabled.")
+            self.tg.send(
+                f"🚀 APEX started ({env}, {mode}) | base ${self.cfg['base_capital']:.0f} "
+                f"risk {self.cfg['risk_pct']*100:.1f}% conc {self.cfg['max_concurrent']} "
+                f"stop {stop} | {len(self.cfg['symbols'])} symbols "
+                f"{','.join(self.cfg['timeframes'])} | reports every "
+                f"{self.cfg['report_hours']:.0f}h")
         while True:
             try:
                 self.run_once()
             except KeyboardInterrupt:
-                log.info("stopping"); break
+                log.info("stopping")
+                self.tg.send("⏹️ APEX stopped (manual).")
+                break
             except Exception as e:
                 log.exception("loop error: %s", e)
+                self.tg.send(f"⚠️ APEX loop error: {e}",
+                             throttle_key="loop_err", throttle_s=3600)
             time.sleep(self.cfg["poll_seconds"])
 
 
@@ -457,6 +572,15 @@ def main():
         format="%(asctime)s %(levelname)s %(message)s",
         handlers=[logging.StreamHandler(sys.stdout)])
     cfg = load_config()
+    # `python3 live_trader.py testtg` -> send a test Telegram message and exit
+    if len(sys.argv) > 1 and sys.argv[1] == "testtg":
+        tg = Telegram(cfg["tg_token"], cfg["tg_chat"])
+        if not tg.enabled:
+            log.error("Telegram not configured (set APEX_TELEGRAM_TOKEN + "
+                      "APEX_TELEGRAM_CHAT_ID)"); sys.exit(1)
+        ok = tg.send("✅ APEX test message — Telegram is wired up correctly.")
+        log.info("telegram test %s", "sent" if ok else "FAILED")
+        sys.exit(0 if ok else 1)
     key, sec = load_credentials(cfg["keys_file"])
     if not key or not sec:
         log.error("No API credentials. Set BINANCE_API_KEY/BINANCE_API_SECRET "
@@ -471,6 +595,8 @@ def main():
                  float(acct.get("availableBalance", 0)))
     except Exception as e:
         log.error("auth/connectivity check failed: %s", e)
+        Telegram(cfg["tg_token"], cfg["tg_chat"]).send(
+            f"🚨 APEX could not start: auth/connectivity failed: {e}")
         sys.exit(1)
     LiveTrader(cfg, api).run_forever()
 

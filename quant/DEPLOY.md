@@ -53,11 +53,14 @@ export BINANCE_API_SECRET=yyyy
 | `APEX_MAX_CONCURRENT` | `6` | max simultaneous positions |
 | `APEX_MONTHLY_STOP` | `9` | halt new entries after losing this many $ in a month (~15% of $62) |
 | `APEX_COMPOUND` | `0` | `1` = reinvest (size off live equity) instead of fixed base |
-| `APEX_TARGET_WITHDRAW` | `100` | logs when withdrawable surplus reaches this |
+| `APEX_TARGET_WITHDRAW` | `100` | logs/alerts when withdrawable surplus reaches this |
 | `APEX_SYMBOLS` | 15 liquid | comma list of bases (default = 15 most-liquid coins) |
 | `APEX_TIMEFRAMES` | `1d` | bar sizes to scan (daily = safest/most robust) |
 | `APEX_POLL_SECONDS` | `60` | loop interval |
-| `APEX_STATE_FILE` | `~/.apex_live_state.json` | remembers processed bars across restarts |
+| `APEX_TELEGRAM_TOKEN` | — | Telegram bot token (enables notifications) |
+| `APEX_TELEGRAM_CHAT_ID` | — | your Telegram chat id |
+| `APEX_REPORT_HOURS` | `24` | how often to send the status report |
+| `APEX_STATE_FILE` | `~/.apex_live_state.json` | remembers processed bars + report time |
 
 The **defaults already are the safe $62 config** — just set your keys and run.
 For a bit more income (and deeper drawdowns), raise `APEX_RISK_PCT` to `0.05`
@@ -77,6 +80,25 @@ APEX_TESTNET=1 APEX_LIVE=1 python3 live_trader.py
 APEX_TESTNET=0 APEX_LIVE=1 python3 live_trader.py
 ```
 
+## 4b. Telegram notifications (optional but recommended)
+
+You'll get a message for every major event — startup, each entry, each close
+(with realized P&L), circuit-breaker hits, withdrawable-surplus target, errors —
+plus a status **report every `APEX_REPORT_HOURS`** (balance, open positions,
+month P&L).
+
+1. In Telegram, message **@BotFather** → `/newbot` → copy the **token**.
+2. Message your new bot once, then open
+   `https://api.telegram.org/bot<token>/getUpdates` and copy your numeric
+   `chat.id` (or message **@userinfobot**).
+3. Set the env vars and verify:
+   ```bash
+   export APEX_TELEGRAM_TOKEN=123456:ABC...
+   export APEX_TELEGRAM_CHAT_ID=987654321
+   python3 live_trader.py testtg        # sends a test message, then exits
+   ```
+If the vars aren't set, the bot runs normally with no notifications.
+
 ## 5. Keep it running (systemd)
 
 `/etc/systemd/system/apex.service`:
@@ -92,7 +114,9 @@ Environment=BINANCE_API_KEY=xxxx
 Environment=BINANCE_API_SECRET=yyyy
 Environment=APEX_TESTNET=0
 Environment=APEX_LIVE=1
-Environment=APEX_BASE_CAPITAL=40
+Environment=APEX_BASE_CAPITAL=62
+Environment=APEX_TELEGRAM_TOKEN=123456:ABC...
+Environment=APEX_TELEGRAM_CHAT_ID=987654321
 ExecStart=/usr/bin/python3 /root/<repo>/quant/live_trader.py
 Restart=always
 RestartSec=10

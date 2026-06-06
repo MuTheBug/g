@@ -174,10 +174,12 @@ class BinanceFutures:
         r = self._request("GET", "/fapi/v2/positionRisk", signed=True)
         return [p for p in r if float(p.get("positionAmt", 0)) != 0]
 
-    def income(self, start_ms, income_type=None, limit=1000):
+    def income(self, start_ms, income_type=None, symbol=None, limit=1000):
         p = {"startTime": start_ms, "limit": limit}
         if income_type:
             p["incomeType"] = income_type
+        if symbol:
+            p["symbol"] = symbol
         return self._request("GET", "/fapi/v1/income", p, signed=True)
 
     def leverage_brackets(self):
