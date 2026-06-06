@@ -59,6 +59,7 @@ class Trade:
     leverage: float
     stop: float
     take: float
+    maint_rate: float = 0.005          # this position's maintenance margin rate
     risk_dollar: float = 0.0           # $ risked on this trade (for R-multiple)
     trail_dist: float = float("nan")   # fractional trailing-stop distance (NaN=off)
     hwm: float = None                  # running favorable extreme price
@@ -71,9 +72,10 @@ class Trade:
 
 
 class Engine:
-    def __init__(self, data: dict, strategy, config: Config = None):
+    def __init__(self, data: dict, strategy, config: Config = None, lev_map=None):
         self.data = data
         self.strategy = strategy
+        self.lev_map = lev_map     # callable sym -> (max_leverage, maint_rate)
         self.cfg = config or Config()
         self.trades = []
         self.peak_concurrent = 0
@@ -172,11 +174,11 @@ class Engine:
                 # essentially never fire before the stop -- but it's kept as a
                 # true worst-case guard.
                 if tr.side == 1:
-                    liq = tr.entry_px * (1 - (1/tr.leverage - cfg.maint_margin))
+                    liq = tr.entry_px * (1 - (1/tr.leverage - tr.maint_rate))
                     if lo <= liq:
                         exit_px, reason = liq, "liq"
                 else:
-                    liq = tr.entry_px * (1 + (1/tr.leverage - cfg.maint_margin))
+                    liq = tr.entry_px * (1 + (1/tr.leverage - tr.maint_rate))
                     if hi >= liq:
                         exit_px, reason = liq, "liq"
                 # stop-loss (assume worst: stop before take if both hit)
@@ -241,10 +243,14 @@ class Engine:
                 # CRITICAL: pick leverage so liquidation sits a SAFE distance
                 # beyond the stop -- at least liq_safety x the stop distance away
                 # (plus maintenance) -- so a wick or slippage past the stop is a
-                # clean -1R exit, not a liquidation. Higher liq_safety = lower
-                # leverage = more margin per trade, but a real safety gap.
-                lev = min(cfg.leverage_cap,
-                          1.0 / (cfg.liq_safety * sd + cfg.maint_margin + LIQ_BUFFER))
+                # clean -1R exit, not a liquidation. Leverage-aware: bounded by
+                # THIS asset's exchange max leverage and real maintenance margin.
+                if self.lev_map is not None:
+                    asset_max_lev, maint = self.lev_map(sym)
+                else:
+                    asset_max_lev, maint = cfg.leverage_cap, cfg.maint_margin
+                lev = min(cfg.leverage_cap, asset_max_lev,
+                          1.0 / (cfg.liq_safety * sd + maint + LIQ_BUFFER))
                 margin = notional / lev
                 # in compound mode we can't commit more margin than free equity
                 if cfg.compound and margin > (cash - committed) + 1e-9:
@@ -254,7 +260,8 @@ class Engine:
                 take = fill * (1 + side * td) if (td and not np.isnan(td)) else np.nan
                 trail = C["trail_dist"][i]
                 tr = Trade(sym, side, ts, fill, qty, notional, margin, lev,
-                           stop, take, risk_dollar=rd, trail_dist=trail, hwm=fill)
+                           stop, take, maint_rate=maint, risk_dollar=rd,
+                           trail_dist=trail, hwm=fill)
                 open_pos[sym] = tr
                 committed += margin
             # track peak concurrency / margin usage for feasibility on $40
