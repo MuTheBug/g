@@ -55,11 +55,13 @@ def load_config():
     return {
         "testnet": _env("APEX_TESTNET", "1") == "1",
         "live": _env("APEX_LIVE", "0") == "1",
-        "base_capital": float(_env("APEX_BASE_CAPITAL", "40")),
-        "risk_pct": float(_env("APEX_RISK_PCT", "0.10")),
+        # Defaults = the validated SAFE income config for a ~$62 account:
+        # daily breakout, risk 3%/trade, 6 positions, ~$9 (15%) monthly stop.
+        "base_capital": float(_env("APEX_BASE_CAPITAL", "62")),
+        "risk_pct": float(_env("APEX_RISK_PCT", "0.03")),
         "leverage_cap": int(float(_env("APEX_LEVERAGE_CAP", "25"))),
         "max_concurrent": int(_env("APEX_MAX_CONCURRENT", "6")),
-        "monthly_stop": float(_env("APEX_MONTHLY_STOP", "12")),
+        "monthly_stop": float(_env("APEX_MONTHLY_STOP", "9")),
         # compounding: size off live equity, reinvest everything (no withdrawals)
         "compound": _env("APEX_COMPOUND", "0") == "1",
         "monthly_stop_pct": float(_env("APEX_MONTHLY_STOP_PCT", "0.30")),
@@ -68,10 +70,13 @@ def load_config():
         "target_withdraw": float(_env("APEX_TARGET_WITHDRAW", "100")),
         "symbols": [s.strip().upper() for s in
                     _env("APEX_SYMBOLS",
-                         "BTC,ETH,BNB,SOL,XRP,ADA,DOGE,AVAX,DOT,LINK").split(",")
+                         "BTC,ETH,BNB,SOL,XRP,ADA,DOGE,AVAX,LINK,TRX,"
+                         "XLM,ZEC,UNI,NEAR,BCH").split(",")
                     if s.strip()],
+        # daily-only is the safest/most robust (less noise, fewer fees); the
+        # backtested edge degrades on faster bars.
         "timeframes": [t.strip() for t in
-                       _env("APEX_TIMEFRAMES", "4h,12h,1d").split(",") if t.strip()],
+                       _env("APEX_TIMEFRAMES", "1d").split(",") if t.strip()],
         "poll_seconds": int(_env("APEX_POLL_SECONDS", "60")),
         "keys_file": _env("APEX_KEYS_FILE", "/root/keys.txt"),
         "state_file": os.path.expanduser(

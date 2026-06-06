@@ -6,10 +6,11 @@ direct port of `lib/data/api/*` + the bracket helpers): HMAC-SHA256 signing,
 market entry on `/fapi/v1/order`, ISOLATED margin + `setLeverage`, and SL/TP
 brackets on the conditional `/fapi/v1/algoOrder` endpoint.
 
-> **Reality check first.** This bot runs the strategy from `README.md`, which
-> backtested to **~$14/month on a $40 base (0% modeled ruin), not $100/month**.
-> $100/mo on $40 is not achievable (see README). Run it for that ~$14/mo on $40,
-> or fund ~$300 for ~$100/mo. Test on **testnet** before risking real money.
+> **Reality check first.** The defaults are the validated **SAFE income config
+> for a ~$62 account**: ~**$5-6/month** (0% modeled ruin, worst month ~-21%,
+> profitable every year 2020-2026, robust out-of-sample). That's the honest
+> safe number on $62 — not $100/month. To average ~$100/month you need ~$600
+> (see README / the capital-vs-income table). Test on **testnet** first.
 
 ## 1. Install
 
@@ -45,16 +46,23 @@ export BINANCE_API_SECRET=yyyy
 |---|---|---|
 | `APEX_TESTNET` | `1` | `1`=testnet, `0`=real exchange |
 | `APEX_LIVE` | `0` | `0`=dry-run (log only), `1`=place real orders |
-| `APEX_BASE_CAPITAL` | `40` | fixed sizing base — profit above this is withdrawable |
-| `APEX_RISK_PCT` | `0.10` | risk per trade as a fraction of the base |
-| `APEX_LEVERAGE_CAP` | `25` | max leverage (per trade it's auto-lowered so the stop sits inside liquidation) |
+| `APEX_BASE_CAPITAL` | `62` | fixed sizing base — profit above this is withdrawable |
+| `APEX_RISK_PCT` | `0.03` | risk per trade as a fraction of the base |
+| `APEX_LEVERAGE_CAP` | `25` | hard leverage cap (per trade it's auto-lowered, asset-aware, so liquidation is ≥2× the stop away) |
+| `APEX_LIQ_SAFETY` | `2.0` | liquidation must sit ≥ this × the stop distance away |
 | `APEX_MAX_CONCURRENT` | `6` | max simultaneous positions |
-| `APEX_MONTHLY_STOP` | `12` | halt new entries after losing this many $ in a month |
+| `APEX_MONTHLY_STOP` | `9` | halt new entries after losing this many $ in a month (~15% of $62) |
+| `APEX_COMPOUND` | `0` | `1` = reinvest (size off live equity) instead of fixed base |
 | `APEX_TARGET_WITHDRAW` | `100` | logs when withdrawable surplus reaches this |
-| `APEX_SYMBOLS` | majors x10 | comma list of bases, e.g. `BTC,ETH,SOL` |
-| `APEX_TIMEFRAMES` | `4h,12h,1d` | bar sizes to scan |
+| `APEX_SYMBOLS` | 15 liquid | comma list of bases (default = 15 most-liquid coins) |
+| `APEX_TIMEFRAMES` | `1d` | bar sizes to scan (daily = safest/most robust) |
 | `APEX_POLL_SECONDS` | `60` | loop interval |
 | `APEX_STATE_FILE` | `~/.apex_live_state.json` | remembers processed bars across restarts |
+
+The **defaults already are the safe $62 config** — just set your keys and run.
+For a bit more income (and deeper drawdowns), raise `APEX_RISK_PCT` to `0.05`
+(~$9/mo, worst ~-36%); to grow the account instead of withdrawing, set
+`APEX_COMPOUND=1 APEX_RISK_PCT=0.02`.
 
 ## 4. Run — staged rollout
 

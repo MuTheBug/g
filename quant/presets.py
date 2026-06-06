@@ -17,6 +17,16 @@ from report_card import run_config
 # per-feed Donchian params live in combined.build_feeds / TF_PARAMS.
 PORTFOLIO = dict(intraday_tfs=("4h", "12h"), use_daily=True)
 
+# --- Validated SAFE config for a small (~$62) income account --------------- #
+# Daily breakout on the 15 most-liquid coins, risk 3%/trade, 6 positions,
+# $9 (15%) monthly circuit-breaker, leverage-aware, 2x liquidation safety.
+# Backtest: ~$5-6/mo on $62, worst month -21%, 0% ruin, positive every year,
+# robust out-of-sample and to doubled costs. Run via live_trader.py defaults.
+SAFE_62 = dict(base_capital=62, risk_pct=0.03, max_concurrent=6,
+               monthly_stop=9, leverage_cap=25, liq_safety=2.0)
+SAFE_62_SYMBOLS = ["BTC", "ETH", "BNB", "SOL", "XRP", "ADA", "DOGE", "AVAX",
+                   "LINK", "TRX", "XLM", "ZEC", "UNI", "NEAR", "BCH"]
+
 PRESETS = {
     # Capital-preserving on the user's actual $40. Sustainable ~$14/mo, 0% ruin.
     "preserve_40": Config(base_capital=40, risk_pct=0.10, max_concurrent=6,
