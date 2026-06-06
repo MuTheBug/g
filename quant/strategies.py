@@ -10,13 +10,17 @@ from indicators import ema, sma, atr, rsi, rolling_high, rolling_low, adx
 
 
 class DonchianBreakout:
-    """Classic trend breakout: enter on N-bar high/low break, ATR stop."""
+    """Classic trend breakout: enter on N-bar high/low break, ATR stop.
+    Optional trend-strength (ADX) gate and ATR trailing exit (let winners run)."""
     def __init__(self, n=48, atr_n=14, atr_mult=2.5, tp_mult=4.0,
-                 trend_filter=200, min_stop=0.015, max_stop=0.15):
+                 trend_filter=200, min_stop=0.015, max_stop=0.15,
+                 adx_min=None, adx_n=14, trail_mult=None):
         self.n, self.atr_n = n, atr_n
         self.atr_mult, self.tp_mult = atr_mult, tp_mult
         self.trend_filter = trend_filter
         self.min_stop, self.max_stop = min_stop, max_stop
+        self.adx_min, self.adx_n = adx_min, adx_n
+        self.trail_mult = trail_mult
 
     def signals(self, df):
         hi = rolling_high(df["high"], self.n)
@@ -26,11 +30,19 @@ class DonchianBreakout:
         c = df["close"]
         long = (c >= hi.shift(1)) & (c > trend)
         short = (c <= lo.shift(1)) & (c < trend)
+        if self.adx_min is not None:               # only trade strong trends
+            strong = adx(df, self.adx_n) > self.adx_min
+            long &= strong
+            short &= strong
         stop_dist = (self.atr_mult * a / c).clip(lower=self.min_stop, upper=self.max_stop)
         out = pd.DataFrame(index=df.index)
         out["long"], out["short"] = long.fillna(False), short.fillna(False)
         out["stop_dist"] = stop_dist
-        out["tp_dist"] = stop_dist * (self.tp_mult / self.atr_mult)
+        if self.tp_mult is not None:
+            out["tp_dist"] = stop_dist * (self.tp_mult / self.atr_mult)
+        if self.trail_mult is not None:            # let winners run on a trail
+            out["trail_dist"] = (self.trail_mult * a / c).clip(lower=self.min_stop,
+                                                               upper=self.max_stop * 2)
         return out
 
 

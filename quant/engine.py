@@ -44,6 +44,8 @@ class Config:
     monthly_stop: float = None      # stop opening trades after -$X realized in a month
     compound: bool = False          # size off CURRENT equity (reinvest) vs fixed base
     monthly_stop_pct: float = None  # compound-mode month stop: fraction of month-start equity
+    derisk_dd: float = None         # if equity is >this fraction below its peak, cut risk
+    derisk_factor: float = 0.5      # multiply risk by this while in drawdown
     costs: Costs = field(default_factory=Costs)
 
 
@@ -121,6 +123,7 @@ class Engine:
         # equity accounting (used for compounding + drawdown metrics in both modes)
         cash = cfg.base_capital          # realized account equity
         committed = 0.0                  # margin locked in open positions
+        peak_cash = cash                 # running equity high-water (for de-risk)
         month_start_cash = cash
         self.equity_curve = [(self.timeline[0], cash)] if len(self.timeline) else []
         self.ruined = False
@@ -198,6 +201,7 @@ class Engine:
                     month_pnl += tr.pnl
                     cash += tr.pnl
                     committed -= tr.margin
+                    peak_cash = max(peak_cash, cash)
                     self.equity_curve.append((ts, cash))
                     del open_pos[sym]
                     if cash <= 0:           # account wiped
@@ -238,6 +242,9 @@ class Engine:
                 # risk-based sizing: % of CURRENT equity (compound) or fixed base
                 equity_for_sizing = cash if cfg.compound else cfg.base_capital
                 rd = equity_for_sizing * cfg.risk_pct
+                # equity-curve risk management: trade smaller while underwater
+                if cfg.derisk_dd is not None and cash < peak_cash * (1 - cfg.derisk_dd):
+                    rd *= cfg.derisk_factor
                 qty = rd / (fill * sd)
                 notional = qty * fill
                 # CRITICAL: pick leverage so liquidation sits a SAFE distance
