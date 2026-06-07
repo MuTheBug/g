@@ -1,0 +1,24 @@
+Research harness | 112 symbols, 2342 days | select on IS(<2024-01), report OOS(>=2024-01)
+
+=== Baseline (20d momentum, fixed $50 legs) ===
+  baseline                           | all sh +0.29 tot $  +815 pos 58% || IS sh +0.38 $+12.9/mo || OOS sh +0.17 $ +6.9/mo pos 57% worst $-55
+
+=== Lever 1: skip-recent-day momentum ===
+  skip=1                             | all sh +0.15 tot $  +469 pos 56% || IS sh +0.23 $ +8.4/mo || OOS sh +0.05 $ +2.4/mo pos 47% worst $-76
+  skip=2                             | all sh +0.13 tot $  +354 pos 45% || IS sh +0.11 $ +3.9/mo || OOS sh +0.15 $ +5.6/mo pos 50% worst $-64
+  skip=3                             | all sh +0.07 tot $  +189 pos 44% || IS sh +0.05 $ +1.9/mo || OOS sh +0.10 $ +3.3/mo pos 40% worst $-51
+  skip=5                             | all sh +0.11 tot $  +239 pos 51% || IS sh +0.03 $ +0.7/mo || OOS sh +0.20 $ +6.8/mo pos 57% worst $-53
+
+=== Lever 2: multi-lookback ensemble (z-scored) ===
+  ensemble [10, 20, 40]              | all sh +0.12 tot $  +375 pos 50% || IS sh +0.22 $ +7.7/mo || OOS sh +0.00 $ +0.1/mo pos 43% worst $-59
+  ensemble [5, 10, 20, 40]           | all sh +0.16 tot $  +439 pos 53% || IS sh +0.20 $ +7.3/mo || OOS sh +0.09 $ +3.0/mo pos 47% worst $-60
+  ensemble [10, 20, 30, 60]          | all sh +0.10 tot $  +293 pos 51% || IS sh +0.10 $ +3.1/mo || OOS sh +0.10 $ +4.8/mo pos 53% worst $-62
+
+=== Lever 3: BTC-residual (idiosyncratic) momentum ===
+  residual 20d                       | all sh +0.25 tot $  +538 pos 55% || IS sh +0.40 $+12.3/mo || OOS sh +0.03 $ +0.7/mo pos 45% worst $-36
+  residual ens[10,20,40]             | all sh +0.15 tot $  +470 pos 53% || IS sh +0.21 $ +7.7/mo || OOS sh +0.10 $ +4.8/mo pos 47% worst $-68
+
+=== Lever 4: inverse-vol (risk-parity) leg sizing ===
+  volparity                          | all sh +0.20 tot $  +442 pos 57% || IS sh +0.29 $ +7.7/mo || OOS sh +0.08 $ +2.6/mo pos 50% worst $-54
+
+Next: combine the levers that hold up OOS, then validate.

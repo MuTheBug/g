@@ -100,10 +100,30 @@ This is **by design**, with one fix:
 All knobs live in `config.env` (see `config.example.env` for the annotated
 list). Defaults are the backtested headline config — usually leave them.
 
+## Honest expected performance
+
+The strategy and its defaults are the result of a strict **walk-forward** study
+(`tool/research_notes.md`): every "improvement" I tried — residual/idiosyncratic
+momentum, multi-lookback ensembles, skip-day momentum, vol-parity sizing, more
+concurrent baskets — looked good in-sample but **failed out-of-sample**. The
+plain baseline these defaults encode was the robust winner, so nothing fancier
+is shipped (residual momentum, e.g., showed in-sample Sharpe 0.40 but out-of-
+sample 0.03 — a textbook overfit that was deliberately rejected).
+
+Use the **out-of-sample** numbers as your expectation, not the bull-flattered
+full history:
+
+- ~**+$6–7 / month on a fixed $60** stake (the 2024–2026 estimate), **not**
+  the +$11/mo of the full 2020–2026 sample.
+- **~0.17 monthly Sharpe (~0.6 annualised)** — a real but *modest* edge.
+- **Down months of roughly −$50** happen; 2022 and 2025 were net-negative years.
+
 ## Important caveats
 
-- Backtest ≠ live: slippage, partial fills, funding, and exchange differences
-  apply. The backtest's edge is real but modest and has −$50-ish down months —
-  size accordingly and don't risk money you can't lose.
+- Backtest ≠ live: slippage, partial fills, and exchange quirks apply on top of
+  the modeled fees + funding. Size accordingly; risk only what you can lose.
+- **Survivorship bias** remains the biggest unknown — the universe is coins that
+  survived to today, which flatters a long/short book. Closing it needs delisted
+  history from a data vendor.
 - This bot is provided as-is for your own authorized trading. Review the code
   before pointing it at real funds.
