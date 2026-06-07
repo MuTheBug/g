@@ -130,7 +130,8 @@ def funding_pnl(name, side, notional, t_open, t_close):
     return -side * notional * sum(rate[lo:hi])
 
 
-def simulate(lookback, k, M, tp, sl, leg_stop, hold, gate, ema_len=0, with_funding=True):
+def simulate(lookback, k, M, tp, sl, leg_stop, hold, gate, ema_len=0, with_funding=True,
+             mom_min=None, confirm_lb=0):
     """Cross-sectional daily momentum basket over the wide crypto universe.
 
     lookback : momentum window (days)
@@ -138,6 +139,13 @@ def simulate(lookback, k, M, tp, sl, leg_stop, hold, gate, ema_len=0, with_fundi
     M        : max concurrent baskets (fixed $60 caps margin)
     ema_len  : >0 -> directional (BTC>EMA: longs; BTC<EMA: shorts); 0 -> neutral
     with_funding : charge/credit 8h funding over each leg's holding period
+
+    Entry filter (None/0 = off, i.e. the original always-on entry):
+      gate      : min long-short momentum dispersion to trade
+      mom_min   : require each long's momentum >= +mom_min AND each short's
+                  momentum <= -mom_min (long a real winner, short a real loser)
+      confirm_lb: also require the same sign over this shorter window (the
+                  trend isn't a one-day spike)
     """
     if ema_len and ema_len not in BTC_EMA:
         BTC_EMA[ema_len] = ema_series(BTC, ema_len)
@@ -258,15 +266,36 @@ def simulate(lookback, k, M, tp, sl, leg_stop, hold, gate, ema_len=0, with_fundi
             if len(scored) >= n_legs:
                 scored.sort(key=lambda x: x[1])
                 spread = scored[-1][1] - scored[0][1]
-                if spread >= gate:
+                longs = scored[-k:]                 # highest momentum
+                shorts = scored[:k]                 # lowest momentum
+
+                ok = spread >= gate
+                # (1) absolute momentum: long real winners, short real losers
+                if ok and mom_min is not None:
+                    ok = (all(m >= mom_min for _n, m in longs) and
+                          all(m <= -mom_min for _n, m in shorts))
+                # (2) trend confirmation on a shorter window (same sign)
+                if ok and confirm_lb:
+                    def cmom(name):
+                        s = SYMS[name]; i = s["idx"].get(t)
+                        if i is None or i < confirm_lb:
+                            return None
+                        p0 = s["C"][i - confirm_lb]
+                        return (s["C"][i] / p0 - 1.0) if p0 > 0 else None
+                    cl = [cmom(n) for n, _ in longs]
+                    cs = [cmom(n) for n, _ in shorts]
+                    ok = (all(c is not None and c > 0 for c in cl) and
+                          all(c is not None and c < 0 for c in cs))
+
+                if ok:
                     if ema_len:
                         if regime_up:
-                            sel = [(n, 1) for n, _ in scored[-k:]]
+                            sel = [(n, 1) for n, _ in longs]
                         else:
-                            sel = [(n, -1) for n, _ in scored[:k]]
+                            sel = [(n, -1) for n, _ in shorts]
                     else:
-                        sel = ([(n, 1) for n, _ in scored[-k:]]
-                               + [(n, -1) for n, _ in scored[:k]])
+                        sel = ([(n, 1) for n, _ in longs]
+                               + [(n, -1) for n, _ in shorts])
                     pending.append(sel)
 
     for b in baskets:
@@ -276,7 +305,8 @@ def simulate(lookback, k, M, tp, sl, leg_stop, hold, gate, ema_len=0, with_fundi
                 n_tp=n_tp, n_sl=n_sl, n_to=n_to, n_legx=n_legx,
                 baskets=n_tp + n_sl + n_to + n_legx, realized=realized,
                 params=dict(lookback=lookback, k=k, M=M, tp=tp, sl=sl,
-                            leg_stop=leg_stop, hold=hold, gate=gate, ema_len=ema_len))
+                            leg_stop=leg_stop, hold=hold, gate=gate, ema_len=ema_len,
+                            mom_min=mom_min, confirm_lb=confirm_lb))
 
 
 def score(res):

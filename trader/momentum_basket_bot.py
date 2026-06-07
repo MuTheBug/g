@@ -82,6 +82,9 @@ LEG_STOP_FRAC  = env("LEG_STOP_FRAC", 0.12, float)
 MAX_HOLD_DAYS  = env("MAX_HOLD_DAYS", 20, int)
 UNIVERSE_TOP_N = env("UNIVERSE_TOP_N", 100, int)      # rank top-N by 24h volume
 POLL_SECONDS   = env("POLL_SECONDS", 300, int)        # basket-monitor interval
+# Entry gate: only open when the top<->bottom momentum dispersion clears this.
+# 0.10 = backtested sweet spot (don't trade flat/noise days). 0 disables.
+MIN_MOM_SPREAD = env("MIN_MOM_SPREAD", 0.10, float)
 
 # hard daily-loss kill-switch: if equity (wallet + unrealised) drops this many
 # $ below the day's starting equity, flatten everything and pause until the next
@@ -658,6 +661,17 @@ class Bot:
         ranked = sorted(((m, s) for s, m in mom.items() if s not in held), reverse=True)
         if len(ranked) < 2 * K_PER_SIDE:
             log("not enough symbols to form a basket")
+            self.last_entry_day = today
+            return
+        # Entry condition (the only filter the backtest supports): require the
+        # top<->bottom momentum DISPERSION to clear MIN_MOM_SPREAD, i.e. don't
+        # trade on a flat/noise day where winners and losers are indistinct.
+        # (Stricter abs-momentum/confirmation filters were tested and HURT the
+        # breadth edge — see tool/backtest_filtered_entry.py.)
+        spread = ranked[0][0] - ranked[-1][0]
+        if spread < MIN_MOM_SPREAD:
+            log(f"entry skipped: momentum dispersion {spread*100:.1f}% "
+                f"< {MIN_MOM_SPREAD*100:.0f}% gate")
             self.last_entry_day = today
             return
         longs = [s for _m, s in ranked[:K_PER_SIDE]]
