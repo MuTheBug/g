@@ -265,6 +265,12 @@ class Binance:
     def cancel_all(self, sym):
         try: return self._post("/fapi/v1/allOpenOrders", {"symbol": sym}, method="DELETE")
         except BinanceError: return {}
+    def open_algo_orders(self, sym=None):
+        d = self._get("/fapi/v1/openAlgoOrders", ({"symbol": sym} if sym else {}), signed=True)
+        return d if isinstance(d, list) else d.get("orders", [])
+    def cancel_algo(self, algo_id):
+        try: return self._post("/fapi/v1/algoOrder", {"algoId": algo_id}, method="DELETE")
+        except BinanceError: return {}
 
 
 class Rules:
@@ -461,29 +467,47 @@ class Bot:
     def _close_side(self, side):   # side: +1 long / -1 short
         return "SELL" if side > 0 else "BUY"
 
-    def _set_brackets(self, sym, side, ref):
-        """Place protective SL (STOP_MARKET) + TP (TAKE_PROFIT_MARKET), closePosition."""
+    def _cancel_orders(self, sym):
+        """Cancel BOTH regular and algo (conditional) open orders for a symbol."""
+        self.bx.cancel_all(sym)
+        try:
+            for o in self.bx.open_algo_orders(sym):
+                self.bx.cancel_algo(o.get("algoId"))
+        except Exception as e:
+            log(f"  {sym} cancel algo failed: {e}")
+
+    def _set_brackets(self, sym, side, ref, qty):
+        """Place protective SL (STOP_MARKET) + TP (TAKE_PROFIT_MARKET), reduceOnly, sized
+        to the position. Falls back to the algo endpoint when the account requires it (-4120)."""
         r = self.rules[sym]
         sl = ref * (1 - SL_PCT) if side > 0 else ref * (1 + SL_PCT)
         tp = ref * (1 + TP_PCT) if side > 0 else ref * (1 - TP_PCT)
         cside = self._close_side(side)
+        qstr = r.qty(qty)
         if DRY_RUN:
-            log(f"  DRY brackets {sym}: SL {cside}@{r.price(sl)} TP {cside}@{r.price(tp)}")
+            log(f"  DRY brackets {sym}: SL {cside}@{r.price(sl)} TP {cside}@{r.price(tp)} x{qstr}")
             return
+        if float(qstr) <= 0:
+            return
+        ok = True
         for otype, px in (("STOP_MARKET", sl), ("TAKE_PROFIT_MARKET", tp)):
             base = dict(symbol=sym, side=cside, type=otype, stopPrice=r.price(px),
-                        closePosition="true", workingType="MARK_PRICE", priceProtect="true")
+                        quantity=qstr, workingType="MARK_PRICE", priceProtect="true")
             if self.hedge:
                 base["positionSide"] = "LONG" if side > 0 else "SHORT"
+            else:
+                base["reduceOnly"] = "true"
             try:
                 self.bx.new_order(**base)
             except BinanceError as e:
-                if e.code == -4120:    # symbol requires the algo endpoint
+                if e.code == -4120:                      # account requires the algo endpoint
                     algo = dict(base); algo.pop("stopPrice"); algo["triggerPrice"] = r.price(px)
                     try: self.bx.new_algo(**algo)
-                    except BinanceError as e2: log(f"  {sym} {otype} algo failed: {e2}")
+                    except BinanceError as e2: ok = False; log(f"  {sym} {otype} algo failed: {e2}")
                 else:
-                    log(f"  {sym} {otype} failed: {e}")
+                    ok = False; log(f"  {sym} {otype} failed: {e}")
+        if not ok:
+            tg(f"⚠️ {self._base(sym)} may be missing a protective stop — check it.")
 
     def _market(self, sym, delta_qty, reduce_only=False):
         r = self.rules[sym]
@@ -545,7 +569,7 @@ class Bot:
             if abs(wt) < 1e-9:                                    # exit: close fully
                 if abs(cur_amt) > 0:
                     if not DRY_RUN:
-                        self.bx.cancel_all(sym)
+                        self._cancel_orders(sym)
                     self._market(sym, -cur_amt, reduce_only=True)
                     closed.append(sym)
                 continue
@@ -569,7 +593,7 @@ class Bot:
                 do_trade = abs(delta_notional) >= max(MIN_REBALANCE_USD, r.min_notional)
 
             if not DRY_RUN:
-                self.bx.cancel_all(sym)                 # clear stale brackets first
+                self._cancel_orders(sym)                # clear stale (regular+algo) brackets first
             if do_trade:
                 if not DRY_RUN:
                     try: self.bx.set_leverage(sym, SYMBOL_LEVERAGE)
@@ -578,7 +602,7 @@ class Bot:
                     (opened if not has_pos else adjusted).append(sym)
                     time.sleep(0.3)
             # we now hold ~target on tgt_side -> (re)place protective SL/TP
-            self._set_brackets(sym, tgt_side, mark)
+            self._set_brackets(sym, tgt_side, mark, abs(tgt_notional) / mark)
 
         self.last_rebalance_day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         self._save_state()
@@ -621,7 +645,7 @@ class Bot:
         posmap = self._position_map()
         for sym, p in posmap.items():
             if not DRY_RUN:
-                self.bx.cancel_all(sym)
+                self._cancel_orders(sym)
             self._market(sym, -p["amt"], reduce_only=True)
         tg(f"🧹 Flattened {len(posmap)} position(s) — {reason}.")
 
