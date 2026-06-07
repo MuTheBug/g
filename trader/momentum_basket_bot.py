@@ -42,6 +42,7 @@ import math
 import os
 import signal
 import sys
+import threading
 import time
 import urllib.parse
 from datetime import datetime, timezone
@@ -82,6 +83,11 @@ MAX_HOLD_DAYS  = env("MAX_HOLD_DAYS", 20, int)
 UNIVERSE_TOP_N = env("UNIVERSE_TOP_N", 100, int)      # rank top-N by 24h volume
 POLL_SECONDS   = env("POLL_SECONDS", 300, int)        # basket-monitor interval
 
+# hard daily-loss kill-switch: if equity (wallet + unrealised) drops this many
+# $ below the day's starting equity, flatten everything and pause until the next
+# UTC day (or a manual /resume). 0 disables.
+DAILY_LOSS_LIMIT = env("DAILY_LOSS_LIMIT", 6.0, float)
+
 STATE_PATH     = env("STATE_PATH", os.path.join(os.path.dirname(__file__), "state.json"))
 RECV_WINDOW    = 5000
 
@@ -104,21 +110,83 @@ def log(msg):
 
 
 # --------------------------------------------------------------------------
-# Telegram
+# Telegram (alerts + interactive commands)
 # --------------------------------------------------------------------------
+# The command set the bot exposes. setMyCommands() pushes EXACTLY this list to
+# BotFather, replacing whatever commands were registered before.
+TG_COMMANDS = [
+    ("status",   "open baskets, PnL, equity, pause/kill state"),
+    ("positions","raw open positions from Binance"),
+    ("equity",   "current account equity"),
+    ("pnl",      "today's PnL vs the day's start"),
+    ("pause",    "stop opening NEW baskets (keeps current ones)"),
+    ("resume",   "resume trading + clear the kill-switch"),
+    ("closeall", "market-close ALL baskets right now"),
+    ("close",    "close one basket: /close <id>"),
+    ("kill",     "panic: flatten everything and pause"),
+    ("config",   "show the active strategy settings"),
+    ("help",     "list commands"),
+]
+
+
+class Telegram:
+    def __init__(self, token, chat):
+        self.token = token
+        self.chat = str(chat) if chat else None
+        self.base = f"https://api.telegram.org/bot{token}" if token else None
+        self.offset = None
+
+    def send(self, text):
+        log(f"[tg] {text.splitlines()[0] if text else ''}")
+        if not self.base or not self.chat:
+            return
+        try:
+            requests.post(f"{self.base}/sendMessage",
+                          json={"chat_id": self.chat, "text": text,
+                                "parse_mode": "HTML", "disable_web_page_preview": True},
+                          timeout=10)
+        except Exception as e:
+            log(f"[tg] send failed: {e}")
+
+    def set_commands(self):
+        if not self.base:
+            return
+        try:
+            requests.post(f"{self.base}/setMyCommands",
+                          json={"commands": [{"command": c, "description": d}
+                                             for c, d in TG_COMMANDS]},
+                          timeout=10)
+        except Exception as e:
+            log(f"[tg] set_commands failed: {e}")
+
+    def poll(self):
+        """Long-poll getUpdates; yield (text) for messages from our chat only."""
+        if not self.base:
+            return []
+        try:
+            params = {"timeout": 30}
+            if self.offset is not None:
+                params["offset"] = self.offset
+            r = requests.get(f"{self.base}/getUpdates", params=params, timeout=40)
+            data = r.json()
+        except Exception:
+            return []
+        out = []
+        for upd in data.get("result", []):
+            self.offset = upd["update_id"] + 1
+            msg = upd.get("message") or upd.get("edited_message") or {}
+            chat_id = str((msg.get("chat") or {}).get("id", ""))
+            text = (msg.get("text") or "").strip()
+            if text and chat_id == self.chat:     # authorized chat only
+                out.append(text)
+        return out
+
+
+TG = Telegram(TG_TOKEN, TG_CHAT)
+
+
 def tg(msg):
-    log(f"[tg] {msg}")
-    if not TG_TOKEN or not TG_CHAT:
-        return
-    try:
-        requests.post(
-            f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage",
-            json={"chat_id": TG_CHAT, "text": msg, "parse_mode": "HTML",
-                  "disable_web_page_preview": True},
-            timeout=10,
-        )
-    except Exception as e:
-        log(f"[tg] send failed: {e}")
+    TG.send(msg)
 
 
 # --------------------------------------------------------------------------
@@ -285,6 +353,11 @@ class Bot:
         self.baskets = []          # list of basket dicts (persisted)
         self.last_entry_day = None
         self.running = True
+        self.paused = False        # manual /pause
+        self.killed = False        # kill-switch tripped this UTC day
+        self.day_key = None        # UTC day for the kill-switch baseline
+        self.day_start_equity = None
+        self.lock = threading.Lock()   # guards basket/order mutations
         self._load_state()
 
     # ---- state persistence ----
@@ -317,20 +390,43 @@ class Bot:
         except Exception as e:
             log(f"position-mode check failed ({e}); assuming one-way")
             self.hedge = False
+        TG.set_commands()          # register THIS command list (replaces old ones)
         bal = self._equity()
+        self.day_key = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        self.day_start_equity = bal
         tg(f"🤖 <b>Momentum-basket bot started</b>\n"
            f"host: {'TESTNET' if TESTNET else 'LIVE'}{' DRY-RUN' if DRY_RUN else ''}\n"
            f"mode: {'hedge' if self.hedge else 'one-way'} | equity ${bal:.2f}\n"
            f"config: {K_PER_SIDE}L/{K_PER_SIDE}S x{MAX_BASKETS} baskets · "
            f"{LOOKBACK_DAYS}d mom · +${TP_USD:.0f}/-${SL_USD:.0f} · "
-           f"{int(LEG_STOP_FRAC*100)}% leg-stop · ${NOTIONAL_LEG:.0f}/leg x{LEVERAGE}")
+           f"{int(LEG_STOP_FRAC*100)}% leg-stop · ${NOTIONAL_LEG:.0f}/leg x{LEVERAGE}\n"
+           f"kill-switch: -${DAILY_LOSS_LIMIT:.2f}/day · /help for commands")
 
     def _equity(self):
+        # margin balance = wallet + unrealised PnL, so the kill-switch reacts to
+        # open drawdown, not just realised losses.
         try:
             a = self.bx.account()
-            return float(a.get("totalWalletBalance") or a.get("availableBalance") or 0)
+            return float(a.get("totalMarginBalance")
+                         or a.get("totalWalletBalance")
+                         or a.get("availableBalance") or 0)
         except Exception:
             return 0.0
+
+    def _actual_qty(self, symbol, side):
+        """Read the REAL filled size from positionRisk (the order response can
+        report executedQty=0 on some accounts -> the -4003 'qty <= 0' bug)."""
+        for _ in range(4):
+            try:
+                for p in self.bx.positions():
+                    if p["symbol"] == symbol:
+                        amt = float(p.get("positionAmt") or 0)
+                        if (side > 0 and amt > 0) or (side < 0 and amt < 0):
+                            return abs(amt)
+            except Exception:
+                pass
+            time.sleep(0.4)
+        return 0.0
 
     # ---- universe + momentum ----
     def _crypto_universe(self):
@@ -395,16 +491,25 @@ class Bot:
         except Exception as e: log(f"  {symbol} setLeverage: {e}")
 
         params = dict(symbol=symbol, side=entry_side, type="MARKET", quantity=qstr,
+                      newOrderRespType="RESULT",
                       newClientOrderId=f"mb_{int(time.time()*1000)}")
         if pos_side: params["positionSide"] = pos_side
         res = self.bx.new_order(**params)
+
+        # Use the REAL filled size from the position, not the order response —
+        # some accounts return executedQty=0 in the ack, which made the leg-stop
+        # order quantity 0 and Binance rejected it -4003 (leaving the leg naked).
+        actual = self._actual_qty(symbol, side)
+        filled = actual if actual > 0 else (float(res.get("executedQty") or 0) or float(qstr))
         fill = float(res.get("avgPrice") or 0) or mark
-        filled = float(res.get("executedQty") or qstr)
 
         leg = dict(symbol=symbol, side=side, qty=filled, entry=fill,
                    stop_order_id=None, open=True)
         # protective 12% leg stop, resting on the exchange
         self._place_leg_stop(leg)
+        if leg.get("stop_order_id") in (None,):
+            tg(f"⚠️ <b>{symbol} leg opened but its 12% stop FAILED</b> — "
+               f"position is unprotected; will rely on the basket stop. Check it.")
         return leg
 
     def _place_leg_stop(self, leg):
@@ -414,6 +519,10 @@ class Bot:
         close_side = "SELL" if leg["side"] > 0 else "BUY"
         pstr = r.price(stop_px)
         qstr = r.qty(leg["qty"])
+        if float(qstr) <= 0:
+            log(f"  {leg['symbol']} leg-stop skipped: qty is 0")
+            leg["stop_order_id"] = None
+            return
         if DRY_RUN:
             leg["stop_order_id"] = -1
             return
@@ -499,8 +608,36 @@ class Bot:
             total += p["upnl"]
         return total, any_open
 
+    # ---- daily kill-switch ----
+    def _roll_day(self):
+        """At each UTC-day boundary, reset the kill-switch baseline."""
+        key = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        if key != self.day_key:
+            self.day_key = key
+            self.day_start_equity = self._equity()
+            if self.killed:
+                self.killed = False
+                tg(f"🌅 New UTC day — kill-switch reset. Baseline equity "
+                   f"${self.day_start_equity:.2f}.")
+            log(f"day baseline equity ${self.day_start_equity:.2f}")
+
+    def _check_kill_switch(self):
+        if DAILY_LOSS_LIMIT <= 0 or self.killed or self.day_start_equity is None:
+            return
+        eq = self._equity()
+        dd = self.day_start_equity - eq
+        if dd >= DAILY_LOSS_LIMIT:
+            self.killed = True
+            tg(f"🚨 <b>KILL-SWITCH TRIPPED</b> — down ${dd:.2f} today "
+               f"(limit ${DAILY_LOSS_LIMIT:.2f}). Flattening everything and "
+               f"pausing until the next UTC day or /resume.")
+            with self.lock:
+                self._close_all("kill-switch")
+
     # ---- main cycles ----
     def maybe_enter(self):
+        if self.paused or self.killed:
+            return
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         if self.last_entry_day == today:
             return
@@ -547,46 +684,63 @@ class Bot:
         tg(f"📈 <b>Opened basket</b> #{basket['id']}\n{desc}\n"
            f"target +${TP_USD:.0f} / stop -${SL_USD:.0f} / {MAX_HOLD_DAYS}d hold")
 
+    def _close_basket(self, basket, reason, upnl=None):
+        """Market-close every leg of a basket and drop it. Caller holds the lock."""
+        for lg in basket["legs"]:
+            self._close_leg(lg, reason)
+        if basket in self.baskets:
+            self.baskets.remove(basket)
+        self._save_state()
+        tag = f"${upnl:+.2f}" if upnl is not None else "n/a"
+        emoji = "✅" if (upnl is None or upnl >= 0) else "🛑"
+        tg(f"{emoji} <b>Closed basket</b> #{basket['id']} — {reason}\n"
+           f"combined PnL ≈ <b>{tag}</b> | equity ${self._equity():.2f}")
+
+    def _close_all(self, reason):
+        """Flatten every basket. Caller holds the lock."""
+        for basket in list(self.baskets):
+            self._close_basket(basket, reason)
+
     def monitor(self):
         posmap = self._position_map()
-        for basket in list(self.baskets):
-            legs_open = [l for l in basket["legs"] if l["open"]]
-            if not legs_open:
-                self.baskets.remove(basket); self._save_state(); continue
-            upnl, any_open = self._basket_upnl(basket, posmap)
-            if not any_open:
-                tg(f"⚠️ Basket #{basket['id']} fully closed on exchange "
-                   f"(leg stops fired).")
-                self.baskets.remove(basket); self._save_state(); continue
-            age_days = (time.time() * 1000 - basket["opened_ts"]) / 86_400_000
-            reason = None
-            if upnl >= TP_USD:
-                reason = "take-profit"
-            elif upnl <= -SL_USD:
-                reason = "stop"
-            elif age_days >= MAX_HOLD_DAYS:
-                reason = "max-hold"
-            if reason:
-                log(f"closing basket #{basket['id']} ({reason}, uPnL ${upnl:+.2f})")
-                for lg in basket["legs"]:
-                    self._close_leg(lg, reason)
-                self.baskets.remove(basket)
-                self._save_state()
-                emoji = "✅" if upnl >= 0 else "🛑"
-                tg(f"{emoji} <b>Closed basket</b> #{basket['id']} — {reason}\n"
-                   f"combined PnL ≈ <b>${upnl:+.2f}</b> | equity ${self._equity():.2f}")
+        with self.lock:
+            for basket in list(self.baskets):
+                if not any(l["open"] for l in basket["legs"]):
+                    self.baskets.remove(basket); self._save_state(); continue
+                upnl, any_open = self._basket_upnl(basket, posmap)
+                if not any_open:
+                    tg(f"⚠️ Basket #{basket['id']} fully closed on exchange "
+                       f"(leg stops fired).")
+                    self.baskets.remove(basket); self._save_state(); continue
+                age_days = (time.time() * 1000 - basket["opened_ts"]) / 86_400_000
+                reason = None
+                if upnl >= TP_USD:
+                    reason = "take-profit"
+                elif upnl <= -SL_USD:
+                    reason = "stop"
+                elif age_days >= MAX_HOLD_DAYS:
+                    reason = "max-hold"
+                if reason:
+                    log(f"closing basket #{basket['id']} ({reason}, uPnL ${upnl:+.2f})")
+                    self._close_basket(basket, reason, upnl)
 
     def run(self):
         self.setup()
+        threading.Thread(target=self._command_loop, daemon=True).start()
         last_heartbeat = 0
         while self.running:
             try:
-                self.maybe_enter()
+                self._roll_day()
+                self._check_kill_switch()
+                with self.lock:
+                    self.maybe_enter()
                 self.monitor()
                 now = time.time()
                 if now - last_heartbeat > 86_400:   # daily heartbeat
                     n = sum(1 for b in self.baskets if any(l["open"] for l in b["legs"]))
-                    tg(f"💓 alive · {n} open basket(s) · equity ${self._equity():.2f}")
+                    tg(f"💓 alive · {n} open basket(s) · equity ${self._equity():.2f}"
+                       + (" · ⏸ paused" if self.paused else "")
+                       + (" · 🚨 killed" if self.killed else ""))
                     last_heartbeat = now
             except BinanceError as e:
                 log(f"Binance error: {e}")
@@ -595,6 +749,103 @@ class Bot:
                 log(f"loop error: {e}")
                 tg(f"❗️Bot error: {e}")
             time.sleep(POLL_SECONDS)
+
+    # ---- Telegram command handling ----
+    def _command_loop(self):
+        while self.running:
+            try:
+                for text in TG.poll():
+                    self._handle(text)
+            except Exception as e:
+                log(f"[cmd] {e}")
+                time.sleep(2)
+
+    def _handle(self, text):
+        parts = text.split()
+        cmd = parts[0].lstrip("/").split("@")[0].lower()
+        arg = parts[1] if len(parts) > 1 else None
+        log(f"[cmd] {text}")
+        if cmd in ("help", "start"):
+            tg("<b>Commands</b>\n" + "\n".join(f"/{c} — {d}" for c, d in TG_COMMANDS))
+        elif cmd == "status":
+            tg(self._status_text())
+        elif cmd == "positions":
+            pm = self._position_map()
+            if not pm:
+                tg("No open positions on Binance.")
+            else:
+                lines = [f"{s} {sd} amt={v['amt']:g} uPnL ${v['upnl']:+.2f}"
+                         for (s, sd), v in pm.items()]
+                tg("<b>Binance positions</b>\n" + "\n".join(lines))
+        elif cmd == "equity":
+            tg(f"Equity (wallet+uPnL): <b>${self._equity():.2f}</b>")
+        elif cmd == "pnl":
+            if self.day_start_equity is None:
+                tg("No baseline yet.")
+            else:
+                eq = self._equity()
+                tg(f"Today: <b>${eq - self.day_start_equity:+.2f}</b> "
+                   f"(start ${self.day_start_equity:.2f} → now ${eq:.2f}) | "
+                   f"kill-switch at -${DAILY_LOSS_LIMIT:.2f}")
+        elif cmd == "pause":
+            self.paused = True
+            tg("⏸ Paused — no NEW baskets. Existing baskets still managed. /resume to undo.")
+        elif cmd == "resume":
+            self.paused = False; self.killed = False
+            tg("▶️ Resumed — trading + kill-switch cleared.")
+        elif cmd == "closeall":
+            with self.lock:
+                n = len(self.baskets)
+                self._close_all("manual /closeall")
+            tg(f"Closed {n} basket(s).")
+        elif cmd == "close":
+            if not arg:
+                tg("Usage: /close <id>  (see /status for ids)")
+            else:
+                with self.lock:
+                    b = next((x for x in self.baskets if str(x["id"]) == str(arg)), None)
+                    if b:
+                        self._close_basket(b, "manual /close")
+                    else:
+                        tg(f"No basket #{arg}.")
+        elif cmd == "kill":
+            self.killed = True
+            with self.lock:
+                self._close_all("manual /kill")
+            tg("🚨 Killed — flattened and paused until next UTC day or /resume.")
+        elif cmd == "config":
+            tg(self._config_text())
+        else:
+            tg(f"Unknown command: /{cmd}. Try /help")
+
+    def _status_text(self):
+        pm = self._position_map()
+        lines = [f"<b>Status</b> — {'TESTNET' if TESTNET else 'LIVE'}"
+                 f"{' DRY' if DRY_RUN else ''} | "
+                 f"{'⏸paused ' if self.paused else ''}{'🚨killed ' if self.killed else ''}"
+                 f"equity ${self._equity():.2f}"]
+        open_b = [b for b in self.baskets if any(l["open"] for l in b["legs"])]
+        if not open_b:
+            lines.append("no open baskets")
+        for b in open_b:
+            up, _ = self._basket_upnl(b, pm)
+            age = (time.time() * 1000 - b["opened_ts"]) / 86_400_000
+            legs = " ".join(f"{'L' if l['side']>0 else 'S'}{l['symbol']}"
+                            for l in b["legs"] if l["open"])
+            lines.append(f"#{b['id']} {legs} | uPnL ${up:+.2f} | {age:.1f}d")
+        if self.day_start_equity is not None:
+            lines.append(f"today ${self._equity()-self.day_start_equity:+.2f} "
+                         f"(kill at -${DAILY_LOSS_LIMIT:.2f})")
+        return "\n".join(lines)
+
+    def _config_text(self):
+        return ("<b>Config</b>\n"
+                f"{K_PER_SIDE}L/{K_PER_SIDE}S × {MAX_BASKETS} baskets\n"
+                f"{LOOKBACK_DAYS}d momentum · TP +${TP_USD:.0f} / SL -${SL_USD:.0f}\n"
+                f"{int(LEG_STOP_FRAC*100)}% leg-stop · {MAX_HOLD_DAYS}d max hold\n"
+                f"${MARGIN_PER_LEG:.0f}/leg ×{LEVERAGE} = ${NOTIONAL_LEG:.0f} notional\n"
+                f"universe top {UNIVERSE_TOP_N} · poll {POLL_SECONDS}s\n"
+                f"daily-loss kill-switch: -${DAILY_LOSS_LIMIT:.2f}")
 
     def stop(self, *_):
         self.running = False

@@ -39,11 +39,51 @@ Use an API key with **Futures** permission and **whitelist your VPS IP**. The
 per-leg 12% stop rests on Binance, so a catastrophic move is capped even if the
 bot/VPS goes down.
 
-## Telegram alerts
+## Telegram alerts + commands
 
 Create a bot via **@BotFather**, get your chat id from **@userinfobot**, put
 both in `config.env`. You'll get alerts on every basket open/close (with PnL),
-errors, and a daily heartbeat.
+errors, the kill-switch, and a daily heartbeat. Only your `TELEGRAM_CHAT_ID` is
+obeyed — messages from anyone else are ignored.
+
+On start the bot registers exactly this command list (replacing any old ones):
+
+| command | what it does |
+|---|---|
+| `/status` | open baskets, each leg + live PnL, equity, pause/kill state |
+| `/positions` | raw open positions from Binance |
+| `/equity` | current account equity (wallet + unrealised) |
+| `/pnl` | today's PnL vs the day's start, and the kill-switch level |
+| `/pause` | stop opening NEW baskets (existing ones still managed) |
+| `/resume` | resume trading and clear the kill-switch |
+| `/closeall` | market-close ALL baskets now |
+| `/close <id>` | close one basket by id (ids come from `/status`) |
+| `/kill` | panic: flatten everything and pause |
+| `/config` | show the active strategy settings |
+| `/help` | list commands |
+
+## Daily-loss kill-switch
+
+`DAILY_LOSS_LIMIT` (default **$6**) is a hard stop: if equity (wallet +
+unrealised PnL) drops that many dollars below the day's starting equity, the bot
+**flattens every basket and pauses** until the next UTC day — or until you
+`/resume`. Set it to `0` to disable. It uses margin balance, so a deep
+*unrealised* drawdown trips it too, not just realised losses.
+
+## Why there's no resting TP/SL per position (the −4003 you saw)
+
+This is **by design**, with one fix:
+
+- The **take-profit is a basket rule**, not a per-leg order. The +$3 target is
+  on the *combined* PnL of the two legs, so it can't be a single resting
+  Binance order — the bot watches it every `POLL_SECONDS` and market-closes the
+  whole basket when hit (same for the −$5 basket stop and 20-day hold).
+- The **12% per-leg catastrophic stop IS a resting `STOP_MARKET` on Binance**
+  and must always be there. Your `-4003 "Quantity less than or equal to zero"`
+  was a bug: the order ack reported `executedQty=0`, so the stop's quantity came
+  out 0 and Binance rejected it — leaving that leg naked. **Fixed:** the bot now
+  reads the real filled size from your position before placing the stop, and
+  Telegrams a loud warning if a leg ever ends up without its stop.
 
 ## How it behaves
 
