@@ -52,3 +52,10 @@ api-keys.txt
 # Python (offline backtest/validation tools under tool/)
 __pycache__/
 *.pyc
+
+# Trader bot runtime (never commit secrets / live state)
+trader/config.env
+trader/state.json
+trader/state.json.tmp
+trader/.venv/
+trader/bot.log
