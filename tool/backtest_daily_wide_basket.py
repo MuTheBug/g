@@ -88,14 +88,56 @@ def ema_series(name, n):
 
 BTC_EMA = {}
 
+# ---- funding-rate history (8h) -> per-symbol (sorted_ts, rate) -------------
+import bisect
+FUND = {}
 
-def simulate(lookback, k, M, tp, sl, leg_stop, hold, gate, ema_len=0):
+
+def load_funding():
+    fdir = DATA_DIR / "funding"
+    if not fdir.exists():
+        return
+    for name in NAMES:
+        p = fdir / f"{name}_USDT_funding.csv"
+        if not p.exists():
+            continue
+        ts, rate = [], []
+        with p.open() as fh:
+            r = csv.reader(fh); next(r, None)
+            for row in r:
+                try:
+                    ts.append(int(row[0])); rate.append(float(row[1]) if row[1] else 0.0)
+                except (ValueError, IndexError):
+                    continue
+        if ts:
+            FUND[name] = (ts, rate)
+
+
+load_funding()
+
+
+def funding_pnl(name, side, notional, t_open, t_close):
+    """Funding paid(-)/earned(+) over [t_open, t_close]. Long pays when the
+    rate is positive; short receives it. Uses entry notional as the base."""
+    f = FUND.get(name)
+    if not f:
+        return 0.0
+    ts, rate = f
+    lo = bisect.bisect_right(ts, t_open)
+    hi = bisect.bisect_right(ts, t_close)
+    if hi <= lo:
+        return 0.0
+    return -side * notional * sum(rate[lo:hi])
+
+
+def simulate(lookback, k, M, tp, sl, leg_stop, hold, gate, ema_len=0, with_funding=True):
     """Cross-sectional daily momentum basket over the wide crypto universe.
 
     lookback : momentum window (days)
     k        : legs per side (neutral: k long + k short; directional: k on side)
     M        : max concurrent baskets (fixed $60 caps margin)
     ema_len  : >0 -> directional (BTC>EMA: longs; BTC<EMA: shorts); 0 -> neutral
+    with_funding : charge/credit 8h funding over each leg's holding period
     """
     if ema_len and ema_len not in BTC_EMA:
         BTC_EMA[ema_len] = ema_series(BTC, ema_len)
@@ -130,11 +172,14 @@ def simulate(lookback, k, M, tp, sl, leg_stop, hold, gate, ema_len=0):
         for lg in b["legs"]:
             if lg[5]:
                 name, side, entry, qty = lg[0], lg[1], lg[2], lg[3]
-                i = SYMS[name]["idx"][t]
+                i = SYMS[name]["idx"].get(t)
+                if i is None:                       # no bar today -> last known px
+                    i = len(SYMS[name]["C"]) - 1
                 px = SYMS[name]["C"][i]
                 gross = qty * (px - entry) * side
                 fees = FEE_PER_SIDE * (qty * entry + qty * px)
-                r += max(gross - fees, -MARGIN_PER_POS)
+                fund = funding_pnl(name, side, qty * entry, b["opened"], t) if with_funding else 0.0
+                r += max(gross - fees + fund, -MARGIN_PER_POS)
         income += r
         monthly[YM[t]] += r; monthly_n[YM[t]] += 1
         realized.append((t, r, reason))
@@ -145,12 +190,15 @@ def simulate(lookback, k, M, tp, sl, leg_stop, hold, gate, ema_len=0):
             for sel in pending:
                 legs = []
                 for (name, side) in sel:
-                    i = SYMS[name]["idx"][t]
+                    i = SYMS[name]["idx"].get(t)
+                    if i is None:                 # no bar on the open day -> skip leg
+                        continue
                     px = SYMS[name]["O"][i]; qty = NOTIONAL_PER_POS / px
                     frac = leg_stop if leg_stop is not None else LIQ_FRAC
                     prot = px * (1 - frac) if side > 0 else px * (1 + frac)
                     legs.append([name, side, px, qty, prot, True])
-                baskets.append(dict(legs=legs, opened=t, held=0, realized=0.0))
+                if legs:
+                    baskets.append(dict(legs=legs, opened=t, held=0, realized=0.0))
             pending = []
 
         # intrabar protective stop per leg
@@ -166,7 +214,8 @@ def simulate(lookback, k, M, tp, sl, leg_stop, hold, gate, ema_len=0):
                     lg[5] = False
                     gross = qty * (prot - entry) * side
                     fees = FEE_PER_SIDE * (qty * entry + qty * prot)
-                    b["realized"] += max(gross - fees, -MARGIN_PER_POS)
+                    fund = funding_pnl(name, side, qty * entry, b["opened"], t) if with_funding else 0.0
+                    b["realized"] += max(gross - fees + fund, -MARGIN_PER_POS)
                     n_legx += 1
 
         # close decisions at today's close
@@ -268,7 +317,9 @@ def main():
           f"fee {FEE_PER_SIDE*100:.2f}%/side")
     span = (ALL_TS[-1] - ALL_TS[0]) / 86_400_000
     print(f"Universe {len(NAMES)} crypto symbols, {len(ALL_TS)} days "
-          f"(~{span/365:.1f} yr), TP=+$3, profits swept\n")
+          f"(~{span/365:.1f} yr), TP=+$3, profits swept")
+    print(f"Funding-rate coverage: {len(FUND)}/{len(NAMES)} symbols "
+          f"(8h funding charged/credited per leg)\n")
 
     TP = 3.0
     runs = []
@@ -309,7 +360,19 @@ def main():
         print_row(res["params"], sc)
 
     # The recommended/headline deliverable is the era-balanced pick.
-    report(by_robust[0][0], by_robust[0][1])
+    best_res = by_robust[0][0]
+    report(best_res, by_robust[0][1])
+
+    # show what funding actually costs this config (re-run it with funding off)
+    bp = best_res["params"]
+    nofund = simulate(bp["lookback"], bp["k"], bp["M"], bp["tp"], bp["sl"],
+                      bp["leg_stop"], bp["hold"], bp["gate"], ema_len=bp["ema_len"],
+                      with_funding=False)
+    sc_nf = score(nofund)
+    print(f"\n  funding impact on headline: "
+          f"with funding ${by_robust[0][1]['total']:+.2f}  vs  "
+          f"without ${sc_nf['total']:+.2f}  "
+          f"(funding = ${by_robust[0][1]['total'] - sc_nf['total']:+.2f} over {best_res['baskets']} baskets)")
 
 
 def report(best_res, best_sc):
