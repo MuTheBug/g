@@ -89,8 +89,8 @@ UNIVERSE_TOP_N  = env("UNIVERSE_TOP_N", 80, int)   # selectable universe by 24h 
 KLINE_HISTORY   = env("KLINE_HISTORY", 150, int)   # daily bars to fetch per symbol
 MIN_HISTORY     = env("MIN_HISTORY", 95, int)      # min bars to be eligible
 MIN_REBALANCE_USD = env("MIN_REBALANCE_USD", 5.0, float)  # skip tiny adjustments
-SL_PCT      = env("SL_PCT", 0.18, float)           # protective stop per position
-TP_PCT      = env("TP_PCT", 0.50, float)           # take-profit per position (wide; trend lets winners run)
+SL_PCT      = env("SL_PCT", 0.40, float)           # wide catastrophe stop (clamped inside liquidation)
+TP_PCT      = env("TP_PCT", 0.0, float)             # 0 = NO take-profit (let trend winners run; backtest-optimal)
 
 REBALANCE_HOUR_UTC = env("REBALANCE_HOUR_UTC", 0, int)   # rebalance after this UTC hour
 POLL_SECONDS    = env("POLL_SECONDS", 120, int)
@@ -503,13 +503,16 @@ class Bot:
         if liq and liq > 0:
             sl = max(sl, liq * (1 + LIQ_BUFFER)) if side > 0 else min(sl, liq * (1 - LIQ_BUFFER))
         qstr = r.qty(qty)
+        legs = ([("STOP_MARKET", sl)] if SL_PCT > 0 else []) + \
+               ([("TAKE_PROFIT_MARKET", tp)] if TP_PCT > 0 else [])
         if DRY_RUN:
-            log(f"  DRY brackets {sym}: SL {cside}@{r.price(sl)} TP {cside}@{r.price(tp)} x{qstr}")
+            log(f"  DRY brackets {sym}: " +
+                (" ".join(f"{ot} {cside}@{r.price(px)}" for ot, px in legs) or "(none)") + f" x{qstr}")
             return
-        if float(qstr) <= 0:
+        if float(qstr) <= 0 or not legs:
             return
         ok = True
-        for otype, px in (("STOP_MARKET", sl), ("TAKE_PROFIT_MARKET", tp)):
+        for otype, px in legs:
             base = dict(symbol=sym, side=cside, type=otype, stopPrice=r.price(px),
                         quantity=qstr, workingType="MARK_PRICE", priceProtect="true")
             if self.hedge:
