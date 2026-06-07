@@ -82,7 +82,9 @@ EMA_SPANS   = tuple(int(x) for x in env("EMA_SPANS", "5,10,15").split(","))
 TARGET_VOL  = env("TARGET_VOL", 0.40, float)       # base annualized vol target
 LEVERAGE    = env("LEVERAGE", 1.0, float)          # extra multiplier (2.0 = aggressive)
 MAX_GROSS   = env("MAX_GROSS", 3.0, float)         # hard cap: total notional / equity
-SYMBOL_LEVERAGE = env("SYMBOL_LEVERAGE", 10, int)  # per-symbol Binance leverage (margin headroom)
+SYMBOL_LEVERAGE = env("SYMBOL_LEVERAGE", 5, int)   # per-symbol Binance leverage (CROSS; keeps liq far)
+MARGIN_TYPE = env("MARGIN_TYPE", "CROSSED")        # CROSSED keeps liquidation account-wide & far
+LIQ_BUFFER  = env("LIQ_BUFFER", 0.06, float)       # keep each SL at least this far INSIDE liquidation
 UNIVERSE_TOP_N  = env("UNIVERSE_TOP_N", 80, int)   # selectable universe by 24h volume
 KLINE_HISTORY   = env("KLINE_HISTORY", 150, int)   # daily bars to fetch per symbol
 MIN_HISTORY     = env("MIN_HISTORY", 95, int)      # min bars to be eligible
@@ -258,6 +260,11 @@ class Binance:
     def account(self):   return self._get("/fapi/v2/account", signed=True)
     def positions(self): return self._get("/fapi/v2/positionRisk", signed=True)
     def set_leverage(self, sym, lev): return self._post("/fapi/v1/leverage", {"symbol": sym, "leverage": lev})
+    def set_margin(self, sym, mtype):
+        try: return self._post("/fapi/v1/marginType", {"symbol": sym, "marginType": mtype})
+        except BinanceError as e:
+            if e.code == -4046: return {}            # "no need to change margin type"
+            raise
     def new_order(self, **p): return self._post("/fapi/v1/order", p)
     def new_algo(self, **p):
         p["algoType"] = "CONDITIONAL"
@@ -463,6 +470,15 @@ class Bot:
             log(f"positions fetch failed: {e}")
         return m
 
+    def _liq_price(self, sym):
+        try:
+            for p in self.bx.positions():
+                if p["symbol"] == sym and float(p.get("positionAmt") or 0):
+                    return float(p.get("liquidationPrice") or 0)
+        except Exception:
+            pass
+        return 0.0
+
     # ---- order helpers ----
     def _close_side(self, side):   # side: +1 long / -1 short
         return "SELL" if side > 0 else "BUY"
@@ -483,6 +499,9 @@ class Bot:
         sl = ref * (1 - SL_PCT) if side > 0 else ref * (1 + SL_PCT)
         tp = ref * (1 + TP_PCT) if side > 0 else ref * (1 - TP_PCT)
         cside = self._close_side(side)
+        liq = self._liq_price(sym)                    # keep the stop strictly INSIDE liquidation
+        if liq and liq > 0:
+            sl = max(sl, liq * (1 + LIQ_BUFFER)) if side > 0 else min(sl, liq * (1 - LIQ_BUFFER))
         qstr = r.qty(qty)
         if DRY_RUN:
             log(f"  DRY brackets {sym}: SL {cside}@{r.price(sl)} TP {cside}@{r.price(tp)} x{qstr}")
@@ -596,6 +615,9 @@ class Bot:
                 self._cancel_orders(sym)                # clear stale (regular+algo) brackets first
             if do_trade:
                 if not DRY_RUN:
+                    if not has_pos:
+                        try: self.bx.set_margin(sym, MARGIN_TYPE)      # CROSS -> far liquidation
+                        except Exception as e: log(f"  {sym} setMargin: {e}")
                     try: self.bx.set_leverage(sym, SYMBOL_LEVERAGE)
                     except Exception: pass
                 if self._market(sym, delta_qty):
