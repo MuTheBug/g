@@ -94,7 +94,8 @@ TP_PCT      = env("TP_PCT", 0.0, float)             # 0 = NO take-profit (let tr
 
 REBALANCE_HOUR_UTC = env("REBALANCE_HOUR_UTC", 0, int)   # rebalance after this UTC hour
 POLL_SECONDS    = env("POLL_SECONDS", 120, int)
-DAILY_LOSS_LIMIT = env("DAILY_LOSS_LIMIT", 8.0, float)   # $ daily-loss kill-switch (0=off)
+DAILY_LOSS_LIMIT = env("DAILY_LOSS_LIMIT", 0.0, float)   # fixed $ daily-loss limit (fallback if PCT=0)
+DAILY_LOSS_PCT  = env("DAILY_LOSS_PCT", 0.12, float)     # daily-loss kill-switch as % of day-start equity (auto-scales)
 
 STATE_PATH  = env("STATE_PATH", os.path.join(os.path.dirname(__file__), "state.json"))
 RECV_WINDOW = 5000
@@ -405,7 +406,8 @@ class Bot:
            f"mode: {'hedge' if self.hedge else 'one-way'} | equity ${bal:.2f}\n"
            f"strategy: risk-adj trend, top{SELECT_TOP}->EMA->hold{HOLD_TOP}, "
            f"vol-target {TARGET_VOL:.0%}×{LEVERAGE:g} (cap {MAX_GROSS:g}x)\n"
-           f"SL {SL_PCT:.0%} / TP {TP_PCT:.0%} per pos · kill -${DAILY_LOSS_LIMIT:.0f}/day · /help")
+           f"SL {SL_PCT:.0%} / {'TP '+format(TP_PCT,'.0%') if TP_PCT>0 else 'no TP'} · "
+           f"kill -{DAILY_LOSS_PCT:.0%}/day · /help")
 
     def _equity(self):
         try:
@@ -655,13 +657,22 @@ class Bot:
                 self.killed = False
                 tg(f"🌅 New UTC day — kill-switch reset. Baseline ${self.day_start_equity:.2f}.")
 
+    def _kill_limit(self):
+        if DAILY_LOSS_PCT > 0 and self.day_start_equity:
+            return DAILY_LOSS_PCT * self.day_start_equity      # % of day-start equity (auto-scales)
+        return DAILY_LOSS_LIMIT
+
     def _check_kill_switch(self):
-        if DAILY_LOSS_LIMIT <= 0 or self.killed or self.day_start_equity is None:
+        if self.killed or self.day_start_equity is None:
+            return
+        limit = self._kill_limit()
+        if limit <= 0:
             return
         dd = self.day_start_equity - self._equity()
-        if dd >= DAILY_LOSS_LIMIT:
+        if dd >= limit:
             self.killed = True
-            tg(f"🚨 <b>KILL-SWITCH</b> — down ${dd:.2f} today (limit ${DAILY_LOSS_LIMIT:.0f}). "
+            tg(f"🚨 <b>KILL-SWITCH</b> — down ${dd:.2f} today "
+               f"(limit ${limit:.2f} = {DAILY_LOSS_PCT*100:.0f}% of ${self.day_start_equity:.2f}). "
                f"Flattening + pausing until next UTC day or /resume.")
             with self.lock:
                 self._flatten("kill-switch")
@@ -785,9 +796,9 @@ class Bot:
                 f"risk-adj trend lookbacks {LOOKBACKS} k={K_STRENGTH:g}\n"
                 f"select top{SELECT_TOP} → EMA{EMA_SPANS} → hold top{HOLD_TOP}\n"
                 f"vol-target {TARGET_VOL:.0%} × lev {LEVERAGE:g} (cap {MAX_GROSS:g}x gross)\n"
-                f"SL {SL_PCT:.0%} / TP {TP_PCT:.0%} · symbol-lev {SYMBOL_LEVERAGE}x\n"
+                f"SL {SL_PCT:.0%} / {'TP '+format(TP_PCT,'.0%') if TP_PCT>0 else 'no TP'} · symbol-lev {SYMBOL_LEVERAGE}x\n"
                 f"universe top{UNIVERSE_TOP_N} · rebalance after {REBALANCE_HOUR_UTC:02d}:00 UTC\n"
-                f"kill-switch -${DAILY_LOSS_LIMIT:.0f}/day · DRY_RUN={DRY_RUN} TESTNET={TESTNET}")
+                f"kill-switch -{DAILY_LOSS_PCT:.0%}/day (≈${self._kill_limit():.0f}) · DRY_RUN={DRY_RUN} TESTNET={TESTNET}")
 
     def stop(self, *_):
         self.running = False
