@@ -1,0 +1,232 @@
+================================================================================
+WASHOUT SNIPER — step-by-step explanation of the strategy
+================================================================================
+Bot:      washout_sniper_bot.py  (v1.1.0, 2026-06-10)
+Research: binance-futures-klines/research/HFT_STRATEGY.md (strict B=16 config)
+Market:   Binance USDT-M perpetual futures, 90-coin fixed universe, 5-minute bars
+
+--------------------------------------------------------------------------------
+0. THE IDEA IN ONE PARAGRAPH
+--------------------------------------------------------------------------------
+When leveraged longs get liquidated on crypto perps, the exchange force-sells
+their positions at market. In a big deleveraging cascade this happens across
+MANY coins within the same few minutes. That selling is mechanical and
+information-free — nobody decided those 20 coins are suddenly worth less; a
+margin engine dumped them. Prices overshoot down and then revert within minutes
+to a couple of hours. The strategy detects the moment a market-wide cascade is
+happening and posts resting limit BUYS slightly below the market, getting paid
+to provide liquidity to forced sellers. It then sells back a few basis points
+higher. It is long-only, mean-reversion, maker-execution, and trades rarely —
+only on genuine washout bars.
+
+--------------------------------------------------------------------------------
+1. UNIVERSE AND DATA
+--------------------------------------------------------------------------------
+1.1  The universe is a FIXED list of 90 liquid USDT-M perpetuals (BTC, ETH,
+     SOL, ... through small caps like FARTCOIN, HYPE). It is the exact list the
+     research was run on; symbols that have been delisted simply drop out at
+     startup when the bot checks what is still trading.
+
+1.2  The bot works only on CLOSED 5-minute bars (UTC). Every decision happens
+     once per bar close — there is no intra-bar signal, so live behaviour
+     matches the backtest with no look-ahead bias.
+
+1.3  On startup it downloads 608 bars (~2.1 days) of 5m closes and quote
+     volume per symbol. 608 is the minimum history needed: the z-score of the
+     newest bar depends on a 288-bar std of residuals, each of which needs a
+     288-bar volume window plus a 6-bar return lookback (288+288+6+margin).
+
+1.4  A coin is "tradable" on a given bar only if its trailing 288-bar (1-day)
+     quote-volume sum is >= $5M. Illiquid names are excluded from both the
+     signal math and trading.
+
+--------------------------------------------------------------------------------
+2. THE SIGNAL — how a "washout" is detected (every 5m bar close)
+--------------------------------------------------------------------------------
+Step 2.1  Shock return. For each coin compute the 30-minute log return:
+              r = log(close_now) - log(close_6_bars_ago)
+
+Step 2.2  Remove the market move. Take the cross-sectional MEDIAN of r over
+          all tradable coins (the "market") and subtract it:
+              x = r - median(r)
+          x is the coin's RESIDUAL move — how much it dumped beyond what the
+          whole market did. This isolates flow-driven selling from ordinary
+          beta moves (if everything is down 2% because BTC is down 2%, x ~ 0).
+
+Step 2.3  Normalize by the coin's own noise. Divide by the rolling standard
+          deviation of x over the trailing 288 bars (1 day):
+              z = x / std(x, 288 bars)
+          z says "this coin is N sigmas below the market relative to its own
+          recent residual volatility".
+
+Step 2.4  Depth condition:    z <= -3.0   (a 3-sigma residual dump in 30 min)
+
+Step 2.5  Breadth condition:  at least 16 tradable coins must satisfy
+          z <= -3.0 on the SAME bar.
+          This is the heart of the strategy. One coin 3 sigmas down is
+          usually real bad news about that coin (hack, delisting, unlock) —
+          those do NOT revert reliably. SIXTEEN coins simultaneously 3 sigmas
+          below the market median is essentially only ever a liquidation
+          cascade — and cascades revert. Research dose-response: per-trade
+          profit factor rises monotonically with breadth (B8: 2.5 → B12: 6.2
+          → B16: 14 in-sample), which is the anti-overfit backbone.
+
+If both conditions hold, every coin with z <= -3.0 is a candidate, ranked
+deepest-z first (most oversold first).
+
+--------------------------------------------------------------------------------
+3. ENTRY — paid liquidity provision, never chasing
+--------------------------------------------------------------------------------
+Step 3.1  For each candidate (deepest z first, while slots and budget allow)
+          the bot places a POST-ONLY (GTX) limit BUY at
+              signal-bar close x (1 - 0.0010)
+          i.e. 10 bps BELOW the close. Post-only guarantees maker fees and
+          guarantees the bot never market-buys into a falling knife. If the
+          price has already moved through the limit (order would execute as
+          taker), Binance rejects it (-5022) and the bot simply skips — the
+          opportunity is gone, it does not chase.
+
+Step 3.2  The bid rests for EXACTLY ONE bar (5 minutes). At the next bar
+          close, the order is checked: filled -> manage the position;
+          unfilled (or only partially possible) -> cancelled. The edge exists
+          only in the minutes right after the cascade bar, so a stale bid is
+          worthless and just adds risk.
+
+Step 3.3  Position size: notional = 15% of current account equity, at 5x
+          CROSS leverage (so margin used is ~3% of equity per position).
+          15% is a micro-account constraint: it keeps each position above
+          Binance's $5 minimum notional even after drawdowns.
+
+--------------------------------------------------------------------------------
+4. EXIT — small take-profit or time-stop; deliberately NO stop-loss
+--------------------------------------------------------------------------------
+Step 4.1  Take-profit. The moment an entry fills, the bot rests a post-only
+          reduce-only limit SELL at
+              fill price x 1.0050   (+50 bps)
+          Maker on the way in, maker on the way out: ~4 bps round trip in
+          fees against a backtested +120-170 bps average expectancy per fill.
+          The fee problem is solved by trade SELECTION (only trading violent
+          washouts), not by shaving fees.
+          Edge case: if price has already gapped above the target before the
+          TP can rest, the TP would cross as taker; the bot then just closes
+          at market — the profit target was reached.
+
+Step 4.2  Time-stop. If the TP has not filled 24 bars (2 hours) after the
+          fill bar, the position is closed at market (reduce-only), win or
+          lose. The thesis is "liquidation overshoot reverts within minutes
+          to hours" — if it hasn't reverted in 2h, the thesis is wrong for
+          this trade and the position is cut. Typical hold is ~35 minutes;
+          ~82-86% of trades exit at the TP.
+
+Step 4.3  There is NO price stop-loss, ON PURPOSE. This was backtested
+          explicitly: in a cascade, stops gap through (filling far below the
+          stop price) and, worse, each stopped-out position frees a slot that
+          the still-firing signal immediately refills — a "re-entry
+          treadmill" that turned the out-of-sample result into -76%. Stops
+          are ruinous for this strategy. Downside is bounded instead by the
+          risk layer below.
+
+--------------------------------------------------------------------------------
+5. RISK LAYER — what replaces the stop-loss
+--------------------------------------------------------------------------------
+The danger scenario is one giant cascade that keeps firing signals while
+positions keep losing. Four independent caps bound it:
+
+5.1  Per-position size: 15% of equity notional. The worst single trade in
+     four years of backtest lost 24% of notional = ~3.6% of equity.
+
+5.2  Max 8 CONCURRENT positions -> gross exposure <= 1.2x equity, margin in
+     use <= ~24%. At 5x cross leverage, liquidation is mathematically out of
+     reach within a 2-hour hold.
+
+5.3  DAILY ENTRY BUDGET: 16 entries per UTC day (fills + resting bids both
+     count). This is the LOAD-BEARING control: it caps how much exposure one
+     cascade day can stack up. Ablation in research: removing it degrades
+     out-of-sample profit factor from 2.68 to 1.08 and drawdown from -5% to
+     -21%. When the budget is spent, the bot stands down until the next UTC
+     day.
+
+5.4  Daily-loss kill-switch: if equity falls 12% below the day's starting
+     equity (DAILY_LOSS_PCT=0.12, auto-scales with the account), the bot
+     flattens EVERYTHING at market, cancels all orders, and stands down until
+     the next UTC day (or a manual /resume). Checked every ~30 seconds
+     against live margin balance, so unrealised drawdown trips it too.
+
+--------------------------------------------------------------------------------
+6. ONE FULL CYCLE, END TO END
+--------------------------------------------------------------------------------
+ 1. A 5m bar closes (UTC).
+ 2. The bot appends the new closes/volumes for all ~90 symbols.
+ 3. It settles the previous bar's business first: resting bids from last bar
+    are resolved (filled -> position + TP order; unfilled -> cancelled), TPs
+    and time-stops on open positions are checked.
+ 4. It recomputes z for every coin and counts breadth.
+ 5. Breadth < 16 (the normal case, >99% of bars): do nothing. Sleep until
+    the next bar boundary.
+ 6. Breadth >= 16: a washout is in progress. Rank all coins with z <= -3.0
+    deepest first. Take as many as free slots (8 - open - pending) and
+    remaining daily budget (16 - used) allow.
+ 7. For each taken signal, rest a post-only bid 10 bps under the close.
+ 8. Next bar: resolve those bids (step 3 above). Fills get a +50 bps TP.
+ 9. Positions exit by TP (usually within ~35 min) or 2h time-stop.
+10. Throughout: every 30s the kill-switch and exits are re-checked; at UTC
+    midnight the day budget resets, the equity baseline re-anchors, and a
+    tripped kill-switch is cleared.
+
+--------------------------------------------------------------------------------
+7. WHAT WAS TESTED AND REJECTED (why the rules are what they are)
+--------------------------------------------------------------------------------
+- Pairs / cointegration trading: all 12 structural pairs DIVERGE at |z|>=2 on
+  5m-4h horizons. Relative value is momentum at this timescale; rejected.
+- Single-coin dips (deep z, low breadth): +5-11 bps mean vs 60-90 bps noise,
+  profit-factor ceiling ~1.3. Lone-coin trouble is usually real news; rejected.
+- The short side (fading overbought spikes): does not revert; rejected.
+- Per-trade stop-losses: -76% out-of-sample (gap-through + re-entry
+  treadmill); rejected — replaced by time-stop + budget + kill-switch.
+- More trade frequency: relaxing breadth to 12 or removing the budget raises
+  trades/day but collapses account PF to 1.26-1.51 and triples drawdown.
+  PF>2 and high frequency are mutually exclusive in this data; the strategy
+  deliberately sits at the high-PF, low-frequency end.
+
+--------------------------------------------------------------------------------
+8. HONEST PERFORMANCE EXPECTATIONS (net of fees + funding)
+--------------------------------------------------------------------------------
+Backtest 2022-01..2026-06, in-sample (IS) 2022-2024, out-of-sample (OOS)
+2025-2026, conservative strictly-through fill model:
+
+- Per-trade OOS: profit factor 3.12, win rate 85%, ~1.9 signals/day fired,
+  ~0.8 account trades/day actually taken, median hold ~35 min.
+- Account OOS ($50 start): +26% over 18 months (~18%/yr), max drawdown -5.2%,
+  median month +1.65%, positive every calendar year 2022-2026.
+- Caveats from the research, verbatim in spirit:
+  * The OOS set was opened ~5 times while hardening the risk layer, so the
+    2.68 account PF is optimistic — treat it as "robustly >1.5, plausibly
+    ~2.5".
+  * Kline backtests cannot model queue position, adverse selection, or ADL;
+    real fills in a violent cascade will be worse than simulated.
+  * The realistic bad stretch: Dec-2025/Jan-2026 style repeated FAILING
+    washouts. The strict breadth>=16 config skipped most of it, but months
+    of -5% to -10% are possible and -12% in a day trips the kill-switch.
+- Expect long stretches of doing NOTHING. No washout = no trades. That is
+  the strategy working, not the strategy being broken.
+
+--------------------------------------------------------------------------------
+9. OPERATIONS
+--------------------------------------------------------------------------------
+- Config: credentials from /root/keys.txt; every parameter above is an env
+  knob (Z_DEEP, BREADTH_MIN, DELTA, TP, MAX_HOLD, POS_FRAC, MAX_CONC,
+  DAY_BUDGET, DAILY_LOSS_PCT, ...) with the researched values as defaults.
+- Safety rails: DRY_RUN=true logs every intended order but places none;
+  BINANCE_TESTNET=true points at the futures testnet.
+- State (open positions, resting bids, day budget) persists to
+  sniper_state.json; a restart reconciles against the exchange and resumes
+  time-stops. Positions opened by any OTHER strategy (e.g. the old v3 trend
+  book) are flattened at startup — they belong to a bot that is no longer
+  running.
+- Telegram control (authorized chat only): /status /positions /signals
+  /equity /pnl /budget /pause /resume /flatten /config /help.
+- deploy_sniper.py performs the switch from the previous bot: stop old
+  service, flatten its book, install + start the sniper.
+- staged_washout_sniper_bot.py is an identical copy of washout_sniper_bot.py
+  kept as the staging artifact for deployment.
+================================================================================
